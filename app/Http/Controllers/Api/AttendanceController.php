@@ -1,0 +1,157 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\AttendanceLog;
+use App\Models\FaceProfile;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Carbon\Carbon;
+
+
+class AttendanceController extends Controller
+{
+    public function clock(Request $request)
+    {
+        $data = $request->validate([
+            'type' => ['required','in:in,out'],
+            'descriptor' => ['required','array','size:128'],
+            'descriptor.*' => ['numeric'],
+            'threshold' => ['nullable','numeric','min:0.2','max:1.0'],
+            'device_id' => ['nullable','string','max:255'],
+            'photo_data_url' => ['nullable','string'],
+        ]);
+
+        $threshold = (float)($data['threshold'] ?? 0.45);
+        $queryDesc = array_map(fn($v) => (float)$v, $data['descriptor']);
+
+        $best = $this->findBestUser($queryDesc, $threshold);
+        if (!$best) {
+            return response()->json(['success' => false, 'message' => 'Face not recognized'], 422);
+        }
+
+        $userId = $best['user_id'];
+
+        // Basic sequence rule
+        $last = AttendanceLog::where('user_id', $userId)
+            ->orderByDesc('occurred_at')
+            ->first();
+
+        if ($data['type'] === 'in') {
+            if ($last && $last->type === 'in') {
+                return response()->json(['success' => false, 'message' => 'Already clocked in'], 409);
+            }
+        } else { // out
+            if (!$last || $last->type !== 'in') {
+                return response()->json(['success' => false, 'message' => 'No active clock-in found'], 409);
+            }
+        }
+
+        $photoPath = null;
+        if (!empty($data['photo_data_url'])) {
+            $photoPath = $this->storeDataUrlPhoto($data['photo_data_url'], $userId);
+        }
+
+        $log = AttendanceLog::create([
+            'user_id' => $userId,
+            'type' => $data['type'],
+            'occurred_at' => now(),
+            'device_id' => $data['device_id'] ?? null,
+            'photo_path' => $photoPath,
+            'meta' => ['distance' => $best['distance']],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'log_id' => $log->id,
+            'user' => ['id' => $userId, 'name' => $best['name']],
+        ]);
+    }
+
+    private function findBestUser(array $queryDesc, float $threshold): ?array
+    {
+        $profiles = FaceProfile::query()
+            ->where('is_active', true)
+            ->with('user:id,name')
+            ->get(['user_id','descriptor']);
+
+        $best = null;
+
+        foreach ($profiles as $p) {
+            $d = $this->euclideanDistance($queryDesc, $p->descriptor);
+            if ($d <= $threshold && ($best === null || $d < $best['distance'])) {
+                $best = [
+                    'user_id' => $p->user_id,
+                    'name' => $p->user?->name ?? ('User '.$p->user_id),
+                    'distance' => $d,
+                ];
+            }
+        }
+
+        return $best;
+    }
+
+    private function euclideanDistance(array $a, array $b): float
+    {
+        $sum = 0.0;
+        for ($i = 0; $i < 128; $i++) {
+            $diff = ((float)$a[$i]) - ((float)$b[$i]);
+            $sum += $diff * $diff;
+        }
+        return sqrt($sum);
+    }
+
+    private function storeDataUrlPhoto(string $dataUrl, int $userId): ?string
+    {
+        if (!str_starts_with($dataUrl, 'data:image/')) return null;
+
+        [$meta, $b64] = explode(',', $dataUrl, 2) + [null, null];
+        if (!$b64) return null;
+
+        // Basic size cap
+        if (strlen($b64) > 1_500_000) return null;
+
+        $bin = base64_decode($b64, true);
+        if ($bin === false) return null;
+
+        $path = 'attendance_photos/'.date('Y/m/d').'/u'.$userId.'_'.uniqid().'.jpg';
+        Storage::disk('local')->put($path, $bin);
+
+        return $path;
+    }
+
+    public function logs(Request $request)
+    {
+        $data = $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+
+        $date = $data['date'] ?? now()->toDateString();
+
+        $start = Carbon::createFromFormat('Y-m-d', $date)->startOfDay();
+        $end   = (clone $start)->endOfDay();
+
+        $logs = AttendanceLog::query()
+            ->with('user:id,name,email')
+            ->whereBetween('occurred_at', [$start, $end])
+            ->orderBy('occurred_at')
+            ->get(['id','user_id','type','occurred_at','photo_path','device_id','meta']);
+
+        return response()->json([
+            'success' => true,
+            'date' => $date,
+            'logs' => $logs->map(fn($l) => [
+                'id' => $l->id,
+                'user_id' => $l->user_id,
+                'name' => $l->user?->name,
+                'email' => $l->user?->email,
+                'type' => $l->type,
+                'occurred_at' => $l->occurred_at?->toISOString(),
+                'photo_path' => $l->photo_path,
+                'device_id' => $l->device_id,
+                'meta' => $l->meta,
+            ])->values(),
+        ]);
+    }
+}
