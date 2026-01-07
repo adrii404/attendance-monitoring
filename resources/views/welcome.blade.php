@@ -15,8 +15,8 @@
 
         <style>
             #videoWrap { position: relative; }
-            #overlay { position: absolute; inset: 0; }
-            video { max-width: 100%; height: auto; }
+            #video { display: block; width: 100%; height: auto; }
+            #overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
         </style>
     </head>
 
@@ -44,7 +44,7 @@
         </header>
 
         <main class="px-4 py-6">
-            <div class="grid gap-6 lg:grid-cols-3">
+            <div class="grid gap-6 lg:grid-cols-[1fr_2fr_1fr]">
                 <section>
                     <div class="rounded-3xl border border-white/10 bg-white/5 p-4 shadow">
                         <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
@@ -173,14 +173,18 @@
                             </div>
                         </div>
 
-                        <div class="mt-4" id="videoWrap">
-                            <video id="video" class="w-full rounded-2xl border border-white/10 bg-black" autoplay muted playsinline></video>
-                            <canvas id="overlay" class="pointer-events-none"></canvas>
+                        <div class="mt-4">
+                            <div id="videoWrap" class="relative">
+                                <video id="video" class="w-full rounded-2xl border border-white/10 bg-black" autoplay muted playsinline></video>
+                                <canvas id="overlay" class="pointer-events-none absolute inset-0"></canvas>
+                            </div>
 
+                            <!-- ✅ everything else OUTSIDE videoWrap -->
                             <div class="mt-2 rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm">
                                 <span class="text-slate-400">Detected:</span>
                                 <span id="liveDetectedName" class="font-semibold text-emerald-300">—</span>
                             </div>
+
                             
                             <div class="mt-4">
                                 <div>
@@ -198,9 +202,7 @@
                     </div>
                 </section>
                 <section>
-                    <div class="rounded-3xl border border-white/10 bg-white/5 p-4 shadow">
-
-                    </div>
+                    <div id="toastList" class="space-y-3"></div>
                 </section>
             </div>
 
@@ -232,7 +234,6 @@
 
 
             <footer class="mt-8 text-center text-[11px] text-slate-500">
-                Built with Tailwind (CDN) + face-api.js. Works best over <span class="font-mono">http://localhost</span>.
             </footer>
         </main>
     </body>

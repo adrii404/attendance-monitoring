@@ -91,6 +91,14 @@ const ui = {
   pwModalInput: el("pwModalInput"),
   pwModalCancel: el("pwModalCancel"),
   pwModalOk: el("pwModalOk"),
+
+  toastWrap: el("toastWrap"),
+  toastPhoto: el("toastPhoto"),
+  toastName: el("toastName"),
+  toastDate: el("toastDate"),
+  toastTime: el("toastTime"),
+  toastAction: el("toastAction"),
+  toastList: el("toastList"),
 };
 
 // ---------------- Lite/Performance knobs ----------------
@@ -123,6 +131,65 @@ const PERF = {
 let serverMatchInFlight = false;
 let lastServerMatchAt = 0;
 let lastServerMatchResult = { matched: false, user: null, distance: null };
+
+
+let toastTimer = null;
+
+function showRightToast({ name, date, time, action, photoDataUrl }) {
+  if (!ui.toastList) return;
+
+  const actionClass =
+    action === "Time-In"
+      ? "text-emerald-300"
+      : action === "Time-Out"
+      ? "text-amber-300"
+      : "text-slate-200";
+
+  const wrap = document.createElement("div");
+  wrap.className =
+    "w-full rounded-3xl border border-white/10 bg-white/5 p-4 shadow " +
+    "flex flex-row gap-4 opacity-0 transition-opacity duration-500";
+
+  wrap.innerHTML = `
+    <img
+      src="${photoDataUrl || ""}"
+      alt="Captured"
+      class="w-[9rem] h-[6rem] rounded-md shadow object-cover bg-black/20"
+      onerror="this.src='';"
+    />
+    <div class="flex flex-col justify-center gap-0.5">
+      <p><span class="font-bold">Name: </span>${escapeHtml(name || "—")}</p>
+      <p><span class="font-bold">Date: </span>${escapeHtml(date || "—")}</p>
+      <p><span class="font-bold">Time: </span>${escapeHtml(time || "—")}</p>
+      <p>
+        <span class="font-bold">Action:</span>
+        <span class="${actionClass} font-semibold">${escapeHtml(action || "—")}</span>
+      </p>
+    </div>
+  `;
+
+  // ✅ newest on top
+  ui.toastList.prepend(wrap);
+
+  // fade in (next tick)
+  requestAnimationFrame(() => {
+    wrap.classList.remove("opacity-0");
+    wrap.classList.add("opacity-100");
+  });
+
+  // fade out after 3s, then remove from DOM
+  setTimeout(() => {
+    wrap.classList.remove("opacity-100");
+    wrap.classList.add("opacity-0");
+
+    setTimeout(() => {
+      wrap.remove();
+    }, 520);
+  }, 3000);
+}
+
+
+
 
 // Throttle server matching so live scanning doesn't spam your API
 const SERVER_MATCH_MIN_INTERVAL_MS = 800;
@@ -570,10 +637,18 @@ async function loadModels() {
 
 function resizeOverlayToVideo() {
   if (!ui.overlay || !ui.video) return;
-  const w = ui.video.videoWidth || ui.video.clientWidth;
-  const h = ui.video.videoHeight || ui.video.clientHeight;
+
+  const rect = ui.video.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width));
+  const h = Math.max(1, Math.round(rect.height));
+
+  // Canvas internal resolution matches displayed pixels
   ui.overlay.width = w;
   ui.overlay.height = h;
+
+  // Make sure canvas element visually matches too
+  ui.overlay.style.width = w + "px";
+  ui.overlay.style.height = h + "px";
 }
 
 function clearOverlay() {
@@ -583,23 +658,22 @@ function clearOverlay() {
 }
 
 function drawResultsWithLabels(results, labels) {
-  if (!ui.overlay || !ui.video) return;
   const ctx = ui.overlay.getContext("2d");
   ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
 
-  const dims = faceapi.matchDimensions(ui.overlay, ui.video, true);
-  const resized = faceapi.resizeResults(results, dims);
+  const rect = ui.video.getBoundingClientRect();
+  const displaySize = { width: rect.width, height: rect.height };
+
+  faceapi.matchDimensions(ui.overlay, displaySize);
+  const resized = faceapi.resizeResults(results, displaySize);
 
   for (let i = 0; i < resized.length; i++) {
-    const r = resized[i];
-    const box = r.detection.box;
+    const box = resized[i].detection.box;
 
-    // face box
     ctx.lineWidth = 2;
     ctx.strokeStyle = "rgba(56, 189, 248, 0.95)";
     ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-    // label
     const label = labels?.[i] || "";
     if (label) {
       const pad = 6;
@@ -614,12 +688,9 @@ function drawResultsWithLabels(results, labels) {
       ctx.fillStyle = "rgba(226, 232, 240, 0.95)";
       ctx.fillText(label, box.x + pad, Math.max(12, box.y - 5));
     }
-
-    if (PERF.DRAW_LANDMARKS && r.landmarks) {
-      faceapi.draw.drawFaceLandmarks(ui.overlay, [r], { drawLines: true });
-    }
   }
 }
+
 
 async function getSingleDescriptorStrict() {
   if (!ui.video) return { descriptor: null, reason: "none", count: 0 };
@@ -1208,6 +1279,16 @@ async function attendance(type) {
 
     appendStatus(`${type}: Saved ✅ (${name})`);
 
+    const actionLabel = type === "check-in" ? "Time-In" : "Time-Out";
+
+    showRightToast({
+      name,
+      date: dateStr,          // YYYY-MM-DD
+      time: timeLocal(now()), // HH:mm:ss
+      action: actionLabel,
+      photoDataUrl: photo || null, // the captured image
+    });
+
     // ✅ Update UI table immediately (local UI cache only; DB is the source of truth)
     addLog(dateStr, {
       name,
@@ -1450,7 +1531,8 @@ function bindEvents() {
     });
   }
 
-  window.addEventListener("resize", () => resizeOverlayToVideo());
+  window.addEventListener("resize", () => requestAnimationFrame(resizeOverlayToVideo));
+  ui.video.addEventListener("loadedmetadata", () => requestAnimationFrame(resizeOverlayToVideo));
 
   // Optional: if you switch tabs, pause scanning and resume
   document.addEventListener("visibilitychange", () => {
