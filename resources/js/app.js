@@ -1,5 +1,4 @@
-import './bootstrap';
-
+import "./bootstrap";
 
 /* app.js (FULL) — CPU/Lite version (no GPU, 16GB RAM friendly)
  * ✅ LIVE name while detecting:
@@ -20,8 +19,9 @@ const MODELS_URL =
   "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
 
 const STORAGE_PROFILES = "fb_attendance_profiles_v1"; // legacy fallback
-const STORAGE_LOGS = "fb_attendance_logs_v1";         // UI-only quick view (DB is the truth)
+const STORAGE_LOGS = "fb_attendance_logs_v1"; // UI-only quick view (DB is the truth)
 const STORAGE_ADMIN_HASH = "fb_attendance_admin_pw_hash_v1";
+const STORAGE_ADMIN_SESSION = "fb_attendance_admin_session_v1";
 
 const el = (id) => document.getElementById(id);
 
@@ -79,6 +79,18 @@ const ui = {
 
   // ✅ Live detected name label
   liveDetectedName: el("liveDetectedName"),
+
+  // ✅ Admin toggle + admin panel wrapper
+  btnAdminToggle: el("btnAdminToggle"),
+  adminPanel: el("adminPanel"),
+
+  // ✅ Password modal (masked input)
+  pwModal: el("pwModal"),
+  pwModalTitle: el("pwModalTitle"),
+  pwModalDesc: el("pwModalDesc"),
+  pwModalInput: el("pwModalInput"),
+  pwModalCancel: el("pwModalCancel"),
+  pwModalOk: el("pwModalOk"),
 };
 
 // ---------------- Lite/Performance knobs ----------------
@@ -145,7 +157,8 @@ async function serverMatchDescriptor(descriptor, threshold) {
   if (serverMatchInFlight) return lastServerMatchResult;
 
   // Throttle calls
-  if (nowMs - lastServerMatchAt < SERVER_MATCH_MIN_INTERVAL_MS) return lastServerMatchResult;
+  if (nowMs - lastServerMatchAt < SERVER_MATCH_MIN_INTERVAL_MS)
+    return lastServerMatchResult;
 
   serverMatchInFlight = true;
   lastServerMatchAt = nowMs;
@@ -210,6 +223,7 @@ function setStatus(msg) {
 }
 
 function appendStatus(msg) {
+  if (!ui.status) return;
   const line = document.createElement("div");
   line.className = "text-[11px] text-slate-300";
   line.textContent = `[${timeLocal()}] ${msg}`;
@@ -262,11 +276,13 @@ function safeSetLocalStorage(key, value) {
 
 // ✅ today-only helper
 function isSelectedDateToday() {
-  const selected = ui.datePicker.value || isoDateLocal();
+  const selected = ui.datePicker?.value || isoDateLocal();
   return selected === isoDateLocal();
 }
 
 function updateCheckButtonsState() {
+  if (!ui.btnCheckIn || !ui.btnCheckOut) return;
+
   const ok = isSelectedDateToday();
 
   ui.btnCheckIn.disabled = !ok;
@@ -283,6 +299,68 @@ function updateCheckButtonsState() {
   ui.btnCheckOut.className = ok
     ? `${baseOn} bg-amber-400/90 hover:bg-amber-300`
     : `${baseOff} bg-white/10`;
+}
+
+// ---------------- Masked password modal (replaces prompt) ----------------
+function promptPasswordModal({
+  title = "Admin password",
+  desc = "Enter password",
+  placeholder = "Password",
+} = {}) {
+  return new Promise((resolve) => {
+    // Fallback if modal not in DOM (won't be masked)
+    if (
+      !ui.pwModal ||
+      !ui.pwModalInput ||
+      !ui.pwModalOk ||
+      !ui.pwModalCancel
+    ) {
+      const pw = prompt(desc);
+      resolve(pw === null ? null : String(pw));
+      return;
+    }
+
+    if (ui.pwModalTitle) ui.pwModalTitle.textContent = title;
+    if (ui.pwModalDesc) ui.pwModalDesc.textContent = desc;
+
+    ui.pwModalInput.type = "password";
+    ui.pwModalInput.placeholder = placeholder;
+    ui.pwModalInput.value = "";
+
+    ui.pwModal.classList.remove("hidden");
+    ui.pwModal.classList.add("flex");
+
+    // Focus next tick
+    setTimeout(() => ui.pwModalInput.focus(), 0);
+
+    const cleanup = () => {
+      ui.pwModal.classList.add("hidden");
+      ui.pwModal.classList.remove("flex");
+      ui.pwModalOk.removeEventListener("click", onOk);
+      ui.pwModalCancel.removeEventListener("click", onCancel);
+      ui.pwModalInput.removeEventListener("keydown", onKey);
+    };
+
+    const onOk = () => {
+      const val = String(ui.pwModalInput.value || "");
+      cleanup();
+      resolve(val);
+    };
+
+    const onCancel = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    const onKey = (e) => {
+      if (e.key === "Enter") onOk();
+      if (e.key === "Escape") onCancel();
+    };
+
+    ui.pwModalOk.addEventListener("click", onOk);
+    ui.pwModalCancel.addEventListener("click", onCancel);
+    ui.pwModalInput.addEventListener("keydown", onKey);
+  });
 }
 
 // ---------------- Password / Admin gate ----------------
@@ -304,16 +382,25 @@ async function sha256Hex(text) {
 }
 
 async function setOrChangePasswordFlow() {
-  const p1 = prompt(
-    "Set/Change admin password:\n\nEnter new password (min 4 chars):"
-  );
+  const p1 = await promptPasswordModal({
+    title: "Set/Change admin password",
+    desc: "Enter new password (min 4 chars):",
+    placeholder: "New password",
+  });
   if (p1 === null) return false;
+
   if (String(p1).length < 4) {
     alert("Password too short (min 4).");
     return false;
   }
-  const p2 = prompt("Confirm password:");
+
+  const p2 = await promptPasswordModal({
+    title: "Confirm password",
+    desc: "Re-enter the new password:",
+    placeholder: "Confirm password",
+  });
   if (p2 === null) return false;
+
   if (p1 !== p2) {
     alert("Passwords do not match.");
     return false;
@@ -339,7 +426,12 @@ async function requireAdmin(actionLabel = "this action") {
     if (!hash) return false;
   }
 
-  const pw = prompt(`Enter admin password to confirm:\n\nAction: ${actionLabel}`);
+  const pw = await promptPasswordModal({
+    title: "Admin confirmation",
+    desc: `Enter admin password to confirm:\nAction: ${actionLabel}`,
+    placeholder: "Admin password",
+  });
+
   if (pw === null) return false;
 
   const inputHash = await sha256Hex(String(pw));
@@ -350,6 +442,30 @@ async function requireAdmin(actionLabel = "this action") {
   return true;
 }
 
+// ---------------- Admin session toggle (show/hide panel) ----------------
+function isAdminLoggedIn() {
+  return localStorage.getItem(STORAGE_ADMIN_SESSION) === "1";
+}
+
+function setAdminLoggedIn(v) {
+  localStorage.setItem(STORAGE_ADMIN_SESSION, v ? "1" : "0");
+}
+
+function applyAdminUiState() {
+  const on = isAdminLoggedIn();
+
+  if (ui.adminPanel) ui.adminPanel.classList.toggle("hidden", !on);
+  if (ui.btnAdminToggle) ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
+
+  // threshold can be interacted with immediately while admin is logged in
+  adminUnlockedThreshold = on;
+
+  // When logging out, snap slider back to last known value (optional safety)
+  if (!on && lastThresholdValue !== null) {
+    setThresholdValue(lastThresholdValue);
+  }
+}
+
 // ---------------- Storage (legacy fallback for profiles) ----------------
 function getProfiles() {
   const raw = localStorage.getItem(STORAGE_PROFILES);
@@ -357,10 +473,7 @@ function getProfiles() {
   return Array.isArray(profiles)
     ? profiles.filter(
         (p) =>
-          p &&
-          p.name &&
-          Array.isArray(p.descriptor) &&
-          p.descriptor.length === 128
+          p && p.name && Array.isArray(p.descriptor) && p.descriptor.length === 128
       )
     : [];
 }
@@ -394,12 +507,6 @@ function addLog(dateStr, record) {
   if (!Array.isArray(logs[dateStr])) logs[dateStr] = [];
   logs[dateStr].push(record);
   saveLogs(logs);
-}
-
-function getLastTypeForPerson(dateStr, name) {
-  const list = getLogsForDate(dateStr).filter((r) => r && r.name === name);
-  if (!list.length) return null;
-  return list[list.length - 1].type || null;
 }
 
 // ✅ one row per person per day summary
@@ -470,11 +577,13 @@ function resizeOverlayToVideo() {
 }
 
 function clearOverlay() {
+  if (!ui.overlay) return;
   const ctx = ui.overlay.getContext("2d");
   ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
 }
 
 function drawResultsWithLabels(results, labels) {
+  if (!ui.overlay || !ui.video) return;
   const ctx = ui.overlay.getContext("2d");
   ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
 
@@ -513,6 +622,8 @@ function drawResultsWithLabels(results, labels) {
 }
 
 async function getSingleDescriptorStrict() {
+  if (!ui.video) return { descriptor: null, reason: "none", count: 0 };
+
   const options = new faceapi.TinyFaceDetectorOptions({
     inputSize: PERF.ACTION_INPUT_SIZE,
     scoreThreshold: PERF.ACTION_SCORE_THRESHOLD,
@@ -533,28 +644,6 @@ async function getSingleDescriptorStrict() {
   return { descriptor: d, reason: "ok", count: 1 };
 }
 
-// (Legacy local matching remains here but is no longer used by live scan/attendance)
-function bestMatch(descriptor, threshold, margin = 0.08) {
-  const profiles = getProfiles();
-  if (!profiles.length) return { match: null, distance: Infinity };
-
-  let best = null;
-  let bestD = Infinity;
-
-  for (const p of profiles) {
-    const d = euclid(descriptor, p.descriptor);
-    if (d < bestD) {
-      bestD = d;
-      best = p;
-    }
-  }
-
-  if (best && bestD <= threshold + margin) {
-    return { match: best, distance: bestD };
-  }
-  return { match: null, distance: bestD };
-}
-
 function euclid(a, b) {
   let sum = 0.0;
   for (let i = 0; i < 128; i++) {
@@ -567,7 +656,7 @@ function euclid(a, b) {
 function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
   try {
     const v = ui.video;
-    if (!v.videoWidth || !v.videoHeight) return null;
+    if (!v || !v.videoWidth || !v.videoHeight) return null;
 
     const w0 = v.videoWidth;
     const h0 = v.videoHeight;
@@ -590,7 +679,7 @@ function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
 
 // ✅ Live scan (throttled by setInterval) to show name while camera runs
 async function runLiveScanOnce() {
-  if (!stream || !modelsReady) return;
+  if (!stream || !modelsReady || !ui.video) return;
   if (scanInProgress) return;
 
   if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return;
@@ -626,7 +715,7 @@ async function runLiveScanOnce() {
       return;
     }
 
-    const threshold = Number(ui.threshold.value);
+    const threshold = Number(ui.threshold?.value ?? 0.55);
     const d = results[0]?.descriptor || null;
 
     if (!d) {
@@ -671,6 +760,8 @@ function stopLiveLoop() {
 // ---------------- Camera ----------------
 async function startCamera() {
   if (stream) return;
+  if (!ui.video) return;
+
   if (!navigator.mediaDevices?.getUserMedia) {
     setStatus("Your browser does not support camera access (getUserMedia).");
     return;
@@ -687,7 +778,6 @@ async function startCamera() {
     });
 
     ui.video.srcObject = stream;
-
     ui.video.onloadedmetadata = () => resizeOverlayToVideo();
 
     await ui.video.play();
@@ -710,7 +800,7 @@ function stopCamera() {
   const tracks = stream.getTracks();
   tracks.forEach((t) => t.stop());
 
-  ui.video.srcObject = null;
+  if (ui.video) ui.video.srcObject = null;
   stream = null;
 
   appendStatus("Camera stopped.");
@@ -729,6 +819,9 @@ async function flipCamera() {
 
 // ---------------- UI rendering ----------------
 async function renderProfiles() {
+  // If you haven't mounted profilesList/enrolledCount in the UI yet, just skip safely
+  if (!ui.profilesList || !ui.enrolledCount) return;
+
   ui.profilesList.innerHTML = "";
 
   // Try DB-backed list first (optional endpoint)
@@ -753,8 +846,12 @@ async function renderProfiles() {
         "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3";
       row.innerHTML = `
         <div class="min-w-0">
-          <div class="text-sm font-semibold truncate">${escapeHtml(p.name || ("User " + p.user_id))}</div>
-          <div class="text-[11px] text-slate-400 font-mono truncate">user_id: ${p.user_id} • face_profile_id: ${p.face_profile_id}</div>
+          <div class="text-sm font-semibold truncate">${escapeHtml(
+            p.name || "User " + p.user_id
+          )}</div>
+          <div class="text-[11px] text-slate-400 font-mono truncate">user_id: ${
+            p.user_id
+          } • face_profile_id: ${p.face_profile_id}</div>
         </div>
         <div class="text-[11px] text-slate-500">DB</div>
       `;
@@ -784,10 +881,14 @@ async function renderProfiles() {
     row.innerHTML = `
       <div class="min-w-0">
         <div class="text-sm font-semibold truncate">${escapeHtml(p.name)}</div>
-        <div class="text-[11px] text-slate-400 font-mono truncate">${escapeHtml(p.id)}</div>
+        <div class="text-[11px] text-slate-400 font-mono truncate">${escapeHtml(
+          p.id
+        )}</div>
       </div>
       <div class="flex items-center gap-2">
-        <button data-del="${escapeHtml(p.id)}" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">Delete</button>
+        <button data-del="${escapeHtml(
+          p.id
+        )}" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">Delete</button>
       </div>
     `;
     ui.profilesList.appendChild(row);
@@ -809,12 +910,15 @@ async function renderProfiles() {
 }
 
 async function renderLogs() {
+  if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
+
   const dateStr = ui.datePicker.value || isoDateLocal();
 
   // Try DB-backed logs first (optional endpoint)
-  const server = await safeFetchJson(`/api/attendance/logs?date=${encodeURIComponent(dateStr)}`, {
-    method: "GET",
-  });
+  const server = await safeFetchJson(
+    `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
+    { method: "GET" }
+  );
 
   if (server.ok && Array.isArray(server.data?.logs)) {
     const logs = server.data.logs;
@@ -823,9 +927,15 @@ async function renderLogs() {
     const map = new Map();
 
     for (const r of logs) {
-      const name = r.name || ("User " + r.user_id);
+      const name = r.name || "User " + r.user_id;
       if (!map.has(name)) {
-        map.set(name, { name, time_in: null, time_out: null, photo_in: null, photo_out: null });
+        map.set(name, {
+          name,
+          time_in: null,
+          time_out: null,
+          photo_in: null,
+          photo_out: null,
+        });
       }
       const item = map.get(name);
 
@@ -860,8 +970,12 @@ async function renderLogs() {
 
       tr.innerHTML = `
         <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_in || "—")}</td>
-        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_out || "—")}</td>
+        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+          r.time_in || "—"
+        )}</td>
+        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+          r.time_out || "—"
+        )}</td>
         <td class="px-3 py-2">
           <span class="text-slate-500 text-[11px]">—</span>
         </td>
@@ -895,8 +1009,12 @@ async function renderLogs() {
 
     tr.innerHTML = `
       <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_in || "—")}</td>
-      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_out || "—")}</td>
+      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+        r.time_in || "—"
+      )}</td>
+      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+        r.time_out || "—"
+      )}</td>
       <td class="px-3 py-2">
         ${
           photo
@@ -911,6 +1029,7 @@ async function renderLogs() {
 }
 
 function setDateToToday() {
+  if (!ui.datePicker) return;
   ui.datePicker.value = isoDateLocal();
   renderLogs();
   updateCheckButtonsState();
@@ -919,7 +1038,6 @@ function setDateToToday() {
 // ---------------- Attendance actions ----------------
 async function enroll() {
   const name = (ui.enrollName?.value || "").trim();
-
   const email = (ui.enrollEmail?.value || "").trim();
   const password = (ui.enrollPassword?.value || "").trim();
 
@@ -959,7 +1077,7 @@ async function enroll() {
     return;
   }
 
-  const threshold = Number(ui.threshold.value);
+  const threshold = Number(ui.threshold?.value ?? 0.55);
 
   // Optional: block enrolling if already matches someone (avoid duplicates)
   const matchResp = await safeFetchJson("/api/face/match", {
@@ -972,7 +1090,11 @@ async function enroll() {
   });
 
   if (matchResp.ok && matchResp.data?.matched) {
-    appendStatus(`Enroll blocked: Face already registered as ${matchResp.data?.user?.name || "someone"}.`);
+    appendStatus(
+      `Enroll blocked: Face already registered as ${
+        matchResp.data?.user?.name || "someone"
+      }.`
+    );
     return;
   }
 
@@ -991,20 +1113,22 @@ async function enroll() {
   if (!r.ok) {
     const msg =
       r.data?.message ||
-      (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
+      (r.data?.errors
+        ? Object.values(r.data.errors).flat().join(" ")
+        : `HTTP ${r.status}`);
     appendStatus(`Enroll failed: ${msg}`);
     return;
   }
 
   appendStatus(`Enroll success ✅ user_id=${r.data?.user?.id ?? "?"}`);
-  ui.enrollName.value = "";
-  ui.enrollEmail.value = "";
-  ui.enrollPassword.value = "";
+  if (ui.enrollName) ui.enrollName.value = "";
+  if (ui.enrollEmail) ui.enrollEmail.value = "";
+  if (ui.enrollPassword) ui.enrollPassword.value = "";
   renderProfiles();
 }
 
 async function attendance(type) {
-  const dateStr = ui.datePicker.value || isoDateLocal();
+  const dateStr = ui.datePicker?.value || isoDateLocal();
 
   if (dateStr !== isoDateLocal()) {
     appendStatus("Range view is read-only. Set From = To to edit a single date.");
@@ -1022,7 +1146,7 @@ async function attendance(type) {
     return;
   }
 
-  const threshold = Number(ui.threshold.value);
+  const threshold = Number(ui.threshold?.value ?? 0.55);
 
   // Enforce today's only
   if (!isSelectedDateToday()) {
@@ -1031,8 +1155,8 @@ async function attendance(type) {
   }
 
   // Disable buttons while processing
-  ui.btnCheckIn.disabled = true;
-  ui.btnCheckOut.disabled = true;
+  if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
+  if (ui.btnCheckOut) ui.btnCheckOut.disabled = true;
 
   try {
     appendStatus(`${type}: Scanning…`);
@@ -1040,7 +1164,9 @@ async function attendance(type) {
     const scan = await getSingleDescriptorStrict();
     if (!scan?.descriptor) {
       if (scan?.reason === "multiple") {
-        appendStatus(`${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`);
+        appendStatus(
+          `${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
+        );
       } else {
         appendStatus(`${type}: Face not detected.`);
       }
@@ -1071,7 +1197,9 @@ async function attendance(type) {
     if (!r.ok) {
       const msg =
         r.data?.message ||
-        (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
+        (r.data?.errors
+          ? Object.values(r.data.errors).flat().join(" ")
+          : `HTTP ${r.status}`);
       appendStatus(`${type}: ${msg}`);
       return;
     }
@@ -1111,7 +1239,7 @@ function downloadText(filename, text) {
 }
 
 function downloadDayCsv() {
-  const dateStr = ui.datePicker.value || isoDateLocal();
+  const dateStr = ui.datePicker?.value || isoDateLocal();
   const logs = getLogsForDate(dateStr);
 
   const headers = ["name", "type", "time", "photo_data_url"];
@@ -1131,7 +1259,7 @@ function downloadDayCsv() {
 }
 
 function downloadDayJson() {
-  const dateStr = ui.datePicker.value || isoDateLocal();
+  const dateStr = ui.datePicker?.value || isoDateLocal();
   const logs = getLogsForDate(dateStr);
   downloadText(`attendance_${dateStr}.json`, JSON.stringify(logs, null, 2));
 }
@@ -1140,7 +1268,7 @@ async function clearDay() {
   const ok = await requireAdmin("Clear logs for selected day");
   if (!ok) return;
 
-  const dateStr = ui.datePicker.value || isoDateLocal();
+  const dateStr = ui.datePicker?.value || isoDateLocal();
   const logs = getLogs();
   delete logs[dateStr];
   saveLogs(logs);
@@ -1171,9 +1299,11 @@ function gateThresholdEvents() {
     const ok = await requireAdmin("Unlock threshold slider");
     if (ok) {
       adminUnlockedThreshold = true;
+      setAdminLoggedIn(true);
+      applyAdminUiState();
       appendStatus("Threshold unlocked ✅ (admin)");
     } else {
-      setThresholdValue(lastThresholdValue);
+      if (lastThresholdValue !== null) setThresholdValue(lastThresholdValue);
       appendStatus("Threshold change blocked (admin password required).");
     }
   });
@@ -1215,11 +1345,7 @@ async function importProfilesFromFile(file) {
   }
 
   const cleaned = data.filter(
-    (p) =>
-      p &&
-      p.name &&
-      Array.isArray(p.descriptor) &&
-      p.descriptor.length === 128
+    (p) => p && p.name && Array.isArray(p.descriptor) && p.descriptor.length === 128
   );
 
   saveProfiles(cleaned);
@@ -1229,51 +1355,100 @@ async function importProfilesFromFile(file) {
 
 // ---------------- Wire up ----------------
 function bindEvents() {
-  ui.btnStart.addEventListener("click", startCamera);
-  ui.btnStop.addEventListener("click", stopCamera);
-  ui.btnFlip.addEventListener("click", flipCamera);
+  if (ui.btnStart) ui.btnStart.addEventListener("click", startCamera);
+  if (ui.btnStop) ui.btnStop.addEventListener("click", stopCamera);
+  if (ui.btnFlip) ui.btnFlip.addEventListener("click", flipCamera);
 
-  ui.btnToday.addEventListener("click", setDateToToday);
+  if (ui.btnToday) ui.btnToday.addEventListener("click", setDateToToday);
 
-  ui.datePicker.addEventListener("change", () => {
-    renderLogs();
-    updateCheckButtonsState();
-  });
-
-  ui.btnEnroll.addEventListener("click", () =>
-    enroll().catch((e) => appendStatus(`Enroll error: ${e?.message || e}`))
-  );
-
-  ui.btnCheckIn.addEventListener("click", () =>
-    attendance("check-in").catch((e) => appendStatus(`Check-in error: ${e?.message || e}`))
-  );
-  ui.btnCheckOut.addEventListener("click", () =>
-    attendance("check-out").catch((e) => appendStatus(`Check-out error: ${e?.message || e}`))
-  );
-
-  ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
-  if (ui.btnDownloadDayJson) ui.btnDownloadDayJson.addEventListener("click", downloadDayJson);
-
-  ui.btnClearDay.addEventListener("click", () =>
-    clearDay().catch((e) => appendStatus(`Clear-day error: ${e?.message || e}`))
-  );
-  ui.btnClearAll.addEventListener("click", () =>
-    clearAll().catch((e) => appendStatus(`Reset error: ${e?.message || e}`))
-  );
-
-  if (ui.btnChangePw) {
-    ui.btnChangePw.addEventListener("click", () => {
-      setOrChangePasswordFlow().catch((e) => appendStatus(`Password error: ${e?.message || e}`));
+  if (ui.datePicker) {
+    ui.datePicker.addEventListener("change", () => {
+      renderLogs();
+      updateCheckButtonsState();
     });
   }
 
-  ui.btnExportProfiles.addEventListener("click", exportProfiles);
-  ui.importProfiles.addEventListener("change", (ev) => {
-    const file = ev.target.files?.[0];
-    if (!file) return;
-    importProfilesFromFile(file).catch((e) => appendStatus(`Import error: ${e?.message || e}`));
-    ev.target.value = "";
-  });
+  if (ui.btnEnroll) {
+    ui.btnEnroll.addEventListener("click", () =>
+      enroll().catch((e) => appendStatus(`Enroll error: ${e?.message || e}`))
+    );
+  }
+
+  if (ui.btnCheckIn) {
+    ui.btnCheckIn.addEventListener("click", () =>
+      attendance("check-in").catch((e) =>
+        appendStatus(`Check-in error: ${e?.message || e}`)
+      )
+    );
+  }
+
+  if (ui.btnCheckOut) {
+    ui.btnCheckOut.addEventListener("click", () =>
+      attendance("check-out").catch((e) =>
+        appendStatus(`Check-out error: ${e?.message || e}`)
+      )
+    );
+  }
+
+  if (ui.btnDownloadDay) ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
+  if (ui.btnDownloadDayJson)
+    ui.btnDownloadDayJson.addEventListener("click", downloadDayJson);
+
+  if (ui.btnClearDay) {
+    ui.btnClearDay.addEventListener("click", () =>
+      clearDay().catch((e) => appendStatus(`Clear-day error: ${e?.message || e}`))
+    );
+  }
+
+  if (ui.btnClearAll) {
+    ui.btnClearAll.addEventListener("click", () =>
+      clearAll().catch((e) => appendStatus(`Reset error: ${e?.message || e}`))
+    );
+  }
+
+  if (ui.btnChangePw) {
+    ui.btnChangePw.addEventListener("click", () => {
+      setOrChangePasswordFlow().catch((e) =>
+        appendStatus(`Password error: ${e?.message || e}`)
+      );
+    });
+  }
+
+  if (ui.btnExportProfiles) ui.btnExportProfiles.addEventListener("click", exportProfiles);
+
+  if (ui.importProfiles) {
+    ui.importProfiles.addEventListener("change", (ev) => {
+      const file = ev.target.files?.[0];
+      if (!file) return;
+      importProfilesFromFile(file).catch((e) =>
+        appendStatus(`Import error: ${e?.message || e}`)
+      );
+      ev.target.value = "";
+    });
+  }
+
+  // ✅ Admin Access / Logout toggle
+  if (ui.btnAdminToggle) {
+    ui.btnAdminToggle.addEventListener("click", async () => {
+      if (isAdminLoggedIn()) {
+        setAdminLoggedIn(false);
+        adminUnlockedThreshold = false;
+
+        if (lastThresholdValue !== null) setThresholdValue(lastThresholdValue);
+
+        applyAdminUiState();
+        appendStatus("Admin logged out.");
+        return;
+      }
+
+      const ok = await requireAdmin("Admin access");
+      if (!ok) return;
+
+      setAdminLoggedIn(true);
+      applyAdminUiState();
+      appendStatus("Admin logged in ✅");
+    });
+  }
 
   window.addEventListener("resize", () => resizeOverlayToVideo());
 
@@ -1294,33 +1469,44 @@ function bindEvents() {
 // ---------------- Init ----------------
 (async function init() {
   updateThresholdUI();
-  lastThresholdValue = Number(ui.threshold.value);
+  if (ui.threshold) lastThresholdValue = Number(ui.threshold.value);
 
-  ui.datePicker.value = isoDateLocal();
+  if (ui.datePicker) ui.datePicker.value = isoDateLocal();
 
   // clock
   const tickClock = () => {
     const d = now();
-    ui.tzLabel.textContent = `Timezone: ${
-      Intl.DateTimeFormat().resolvedOptions().timeZone || "local"
-    }`;
-    ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
+    if (ui.tzLabel) {
+      ui.tzLabel.textContent = `Timezone: ${
+        Intl.DateTimeFormat().resolvedOptions().timeZone || "local"
+      }`;
+    }
+    if (ui.nowLabel) ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
   };
   tickClock();
   setInterval(tickClock, 1000);
 
   bindEvents();
+  applyAdminUiState(); // ✅ show/hide admin panel + button text on load
   renderProfiles();
   renderLogs();
   updateCheckButtonsState();
 
   try {
     await loadModels();
-    appendStatus("Ready. Start camera. When it detects 1 face, it will show the person's NAME on the box if registered.");
+    appendStatus(
+      "Ready. Start camera. When it detects 1 face, it will show the person's NAME on the box if registered."
+    );
     appendStatus("If not registered, the box will say: Not registered.");
-    appendStatus("Check In/Out works ONLY on TODAY. You can still browse history by changing date.");
+    appendStatus(
+      "Check In/Out works ONLY on TODAY. You can still browse history by changing date."
+    );
 
-    appendStatus(`Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${PERF.LIVE_SCAN_INTERVAL_MS}ms, landmarks=${PERF.DRAW_LANDMARKS ? "ON" : "OFF"}`);
+    appendStatus(
+      `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${PERF.LIVE_SCAN_INTERVAL_MS}ms, landmarks=${
+        PERF.DRAW_LANDMARKS ? "ON" : "OFF"
+      }`
+    );
   } catch (e) {
     setModelPill("error", "Model load failed");
     setStatus(`Model load failed: ${e?.message || e}`);
