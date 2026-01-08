@@ -127,11 +127,50 @@ const PERF = {
   PAUSE_WHEN_HIDDEN: true,
 };
 
+// ---------------- Voice (Text-to-Speech) ----------------
+// ✅ IMPORTANT: Some browsers require a user gesture first, so we "unlock" speech
+let voiceEnabled = true;
+let speechUnlocked = false;
+
+function unlockSpeech() {
+  if (speechUnlocked) return;
+  if (!("speechSynthesis" in window)) return;
+
+  const u = new SpeechSynthesisUtterance(" ");
+  u.volume = 0;
+  window.speechSynthesis.speak(u);
+  window.speechSynthesis.cancel();
+
+  speechUnlocked = true;
+}
+
+function speak(text) {
+  if (!voiceEnabled) return;
+  if (!("speechSynthesis" in window)) return;
+
+  // avoid queued/overlapping speech
+  window.speechSynthesis.cancel();
+
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1;
+  u.pitch = 1;
+  u.volume = 1;
+
+  const voices = window.speechSynthesis.getVoices?.() || [];
+  const en = voices.find((v) => /en/i.test(v.lang)) || voices[0];
+  if (en) u.voice = en;
+
+  window.speechSynthesis.speak(u);
+}
+
+window.speechSynthesis?.addEventListener?.("voiceschanged", () => {
+  window.speechSynthesis.getVoices();
+});
+
 // ---------------- Server matching (DB-driven) ----------------
 let serverMatchInFlight = false;
 let lastServerMatchAt = 0;
 let lastServerMatchResult = { matched: false, user: null, distance: null };
-
 
 let toastTimer = null;
 
@@ -187,9 +226,6 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
     }, 520);
   }, 3000);
 }
-
-
-
 
 // Throttle server matching so live scanning doesn't spam your API
 const SERVER_MATCH_MIN_INTERVAL_MS = 800;
@@ -522,7 +558,8 @@ function applyAdminUiState() {
   const on = isAdminLoggedIn();
 
   if (ui.adminPanel) ui.adminPanel.classList.toggle("hidden", !on);
-  if (ui.btnAdminToggle) ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
+  if (ui.btnAdminToggle)
+    ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
 
   // threshold can be interacted with immediately while admin is logged in
   adminUnlockedThreshold = on;
@@ -540,7 +577,10 @@ function getProfiles() {
   return Array.isArray(profiles)
     ? profiles.filter(
         (p) =>
-          p && p.name && Array.isArray(p.descriptor) && p.descriptor.length === 128
+          p &&
+          p.name &&
+          Array.isArray(p.descriptor) &&
+          p.descriptor.length === 128
       )
     : [];
 }
@@ -560,7 +600,8 @@ function getLogs() {
 
 function saveLogs(logs) {
   const r = safeSetLocalStorage(STORAGE_LOGS, JSON.stringify(logs));
-  if (!r.ok) appendStatus("Storage warning: Failed to save logs (quota/storage error).");
+  if (!r.ok)
+    appendStatus("Storage warning: Failed to save logs (quota/storage error).");
 }
 
 function getLogsForDate(dateStr) {
@@ -690,7 +731,6 @@ function drawResultsWithLabels(results, labels) {
     }
   }
 }
-
 
 async function getSingleDescriptorStrict() {
   if (!ui.video) return { descriptor: null, reason: "none", count: 0 };
@@ -1279,11 +1319,16 @@ async function attendance(type) {
 
     appendStatus(`${type}: Saved ✅ (${name})`);
 
+    // ✅ Speak the REGISTERED name returned by backend
+    const say = type === "check-in" ? "time in" : "time out";
+    if (name && name !== "Unknown") speak(`${name} ${say}`);
+    else speak("Unknown face. Please scan again.");
+
     const actionLabel = type === "check-in" ? "Time-In" : "Time-Out";
 
     showRightToast({
       name,
-      date: dateStr,          // YYYY-MM-DD
+      date: dateStr, // YYYY-MM-DD
       time: timeLocal(now()), // HH:mm:ss
       action: actionLabel,
       photoDataUrl: photo || null, // the captured image
@@ -1455,20 +1500,23 @@ function bindEvents() {
     );
   }
 
+  // ✅ Unlock speech on click (required in some browsers)
   if (ui.btnCheckIn) {
-    ui.btnCheckIn.addEventListener("click", () =>
+    ui.btnCheckIn.addEventListener("click", () => {
+      unlockSpeech();
       attendance("check-in").catch((e) =>
         appendStatus(`Check-in error: ${e?.message || e}`)
-      )
-    );
+      );
+    });
   }
 
   if (ui.btnCheckOut) {
-    ui.btnCheckOut.addEventListener("click", () =>
+    ui.btnCheckOut.addEventListener("click", () => {
+      unlockSpeech();
       attendance("check-out").catch((e) =>
         appendStatus(`Check-out error: ${e?.message || e}`)
-      )
-    );
+      );
+    });
   }
 
   if (ui.btnDownloadDay) ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
@@ -1495,7 +1543,8 @@ function bindEvents() {
     });
   }
 
-  if (ui.btnExportProfiles) ui.btnExportProfiles.addEventListener("click", exportProfiles);
+  if (ui.btnExportProfiles)
+    ui.btnExportProfiles.addEventListener("click", exportProfiles);
 
   if (ui.importProfiles) {
     ui.importProfiles.addEventListener("change", (ev) => {
@@ -1563,7 +1612,8 @@ function bindEvents() {
         Intl.DateTimeFormat().resolvedOptions().timeZone || "local"
       }`;
     }
-    if (ui.nowLabel) ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
+    if (ui.nowLabel)
+      ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
   };
   tickClock();
   setInterval(tickClock, 1000);

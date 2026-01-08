@@ -30,7 +30,6 @@
 
                     <div>
                         <div class="text-lg font-semibold leading-tight">Face Attendance</div>
-                        <div class="text-xs text-slate-300">Frontend-only • Tailwind UI • localStorage</div>
                     </div>
                 </div>
 
@@ -104,7 +103,7 @@
                                         </button>
         
                                         <button id="btnExportProfiles" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">
-                                            Export profiles (JSON)
+                                            E   
                                         </button>
         
                                         <label class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 cursor-pointer">
