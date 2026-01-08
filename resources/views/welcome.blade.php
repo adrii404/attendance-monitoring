@@ -30,7 +30,6 @@
 
                     <div>
                         <div class="text-lg font-semibold leading-tight">Face Attendance</div>
-                        <div class="text-xs text-slate-300">Frontend-only • Tailwind UI • localStorage</div>
                     </div>
                 </div>
 
@@ -104,7 +103,7 @@
                                         </button>
         
                                         <button id="btnExportProfiles" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">
-                                            Export profiles (JSON)
+                                            E   
                                         </button>
         
                                         <label class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 cursor-pointer">
@@ -194,7 +193,7 @@
 
                                 <div class="mt-3 grid gap-2 lg:grid-cols-2">
                                     <button id="btnCheckIn" class="rounded-2xl bg-sky-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">Check In</button>
-                                    <button id="btnCheckOut" class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300">Check Out</button>
+                                    <button id="btnCheckOut" class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300 ">Check Out</button>
                                 </div>
                             </div>
                         </div>
