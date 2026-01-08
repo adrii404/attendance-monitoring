@@ -193,7 +193,7 @@
 
                                 <div class="mt-3 grid gap-2 lg:grid-cols-2">
                                     <button id="btnCheckIn" class="rounded-2xl bg-sky-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">Check In</button>
-                                    <button id="btnCheckOut" class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300">Check Out</button>
+                                    <button id="btnCheckOut" class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300 ">Check Out</button>
                                 </div>
                             </div>
                         </div>

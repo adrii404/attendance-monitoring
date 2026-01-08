@@ -13,6 +13,10 @@ import "./bootstrap";
  * - Landmarks drawing is OFF by default (big CPU saver) — toggle via PERF.DRAW_LANDMARKS
  * - Action scans (button clicks): strict, moderate inputSize
  * - Smaller stored photos to reduce memory/storage pressure
+ *
+ * ✅ NEW RULE:
+ * - AUTO CAPTURE for CHECK-IN only (every 2 seconds) when 1 registered face is seen
+ * - CHECK-OUT must be clicked via button (manual)
  */
 
 const MODELS_URL =
@@ -112,6 +116,12 @@ const PERF = {
   ACTION_INPUT_SIZE: 224,
   ACTION_SCORE_THRESHOLD: 0.5,
 
+  // ✅ Auto check-in: tries every 2 seconds (only when 1 registered face is seen)
+  AUTO_CHECKIN_INTERVAL_MS: 2000,
+
+  // ✅ Prevent spamming same person while they stand still
+  AUTO_CHECKIN_SAME_USER_COOLDOWN_MS: 8000,
+
   // Major CPU saver: drawing landmarks is expensive
   DRAW_LANDMARKS: false,
 
@@ -171,6 +181,20 @@ window.speechSynthesis?.addEventListener?.("voiceschanged", () => {
 let serverMatchInFlight = false;
 let lastServerMatchAt = 0;
 let lastServerMatchResult = { matched: false, user: null, distance: null };
+
+// ✅ Live single-face matched user (used by AUTO CHECK-IN)
+let liveSingle = {
+  matched: false,
+  userId: null,
+  name: null,
+  updatedAt: 0,
+};
+
+// ✅ Auto check-in control
+let autoCheckInTimer = null;
+let autoCheckInInFlight = false;
+let lastAutoCheckInUserId = null;
+let lastAutoCheckInAt = 0;
 
 let toastTimer = null;
 
@@ -301,6 +325,9 @@ let liveTimer = null;
 
 let adminUnlockedThreshold = false;
 let lastThresholdValue = null;
+
+// ✅ prevent overlapping attendance calls
+let attendanceInProgress = false;
 
 // ---------------- Utilities ----------------
 function now() {
@@ -755,15 +782,6 @@ async function getSingleDescriptorStrict() {
   return { descriptor: d, reason: "ok", count: 1 };
 }
 
-function euclid(a, b) {
-  let sum = 0.0;
-  for (let i = 0; i < 128; i++) {
-    const diff = (a[i] || 0) - (b[i] || 0);
-    sum += diff * diff;
-  }
-  return Math.sqrt(sum);
-}
-
 function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
   try {
     const v = ui.video;
@@ -814,6 +832,7 @@ async function runLiveScanOnce() {
     if (count === 0) {
       clearOverlay();
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
+      liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
       return;
     }
 
@@ -823,6 +842,7 @@ async function runLiveScanOnce() {
       for (let i = 0; i < count; i++) labels[i] = "Multiple faces";
       drawResultsWithLabels(results, labels);
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Multiple faces";
+      liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
       return;
     }
 
@@ -833,6 +853,7 @@ async function runLiveScanOnce() {
       labels[0] = "Face detected";
       drawResultsWithLabels(results, labels);
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Face detected";
+      liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
       return;
     }
 
@@ -842,9 +863,17 @@ async function runLiveScanOnce() {
     if (resp.matched && resp.user?.name) {
       labels[0] = resp.user.name;
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = resp.user.name;
+
+      liveSingle = {
+        matched: true,
+        userId: resp.user?.id ?? null,
+        name: resp.user.name,
+        updatedAt: Date.now(),
+      };
     } else {
       labels[0] = "Not registered";
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Not registered";
+      liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
     }
 
     drawResultsWithLabels(results, labels);
@@ -868,10 +897,72 @@ function stopLiveLoop() {
   liveTimer = null;
 }
 
+// ---------------- AUTO CHECK-IN ONLY ----------------
+function shouldAutoCheckInNow() {
+  if (!stream || !modelsReady) return false;
+  if (!isSelectedDateToday()) return false;
+  if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return false;
+
+  // must be exactly 1 registered face (set by live scan)
+  if (!liveSingle.matched || !liveSingle.userId) return false;
+
+  // prevent overlap
+  if (attendanceInProgress || autoCheckInInFlight) return false;
+
+  // cooldown for same person standing in front
+  const nowMs = Date.now();
+  if (
+    lastAutoCheckInUserId === liveSingle.userId &&
+    nowMs - lastAutoCheckInAt < PERF.AUTO_CHECKIN_SAME_USER_COOLDOWN_MS
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function startAutoCheckIn() {
+  if (autoCheckInTimer) return;
+  autoCheckInTimer = setInterval(async () => {
+    if (!shouldAutoCheckInNow()) return;
+
+    autoCheckInInFlight = true;
+    try {
+      // ✅ AUTO = check-in only
+      await attendance("check-in", { auto: true });
+
+      // if successful, attendance() already logs & toasts
+      // we mark cooldown by current liveSingle
+      if (liveSingle.userId) {
+        lastAutoCheckInUserId = liveSingle.userId;
+        lastAutoCheckInAt = Date.now();
+      }
+    } finally {
+      autoCheckInInFlight = false;
+    }
+  }, PERF.AUTO_CHECKIN_INTERVAL_MS);
+}
+
+function stopAutoCheckIn() {
+  if (!autoCheckInTimer) return;
+  clearInterval(autoCheckInTimer);
+  autoCheckInTimer = null;
+  autoCheckInInFlight = false;
+}
+
+// keep auto check-in in sync with camera/date
+function syncAutoCheckIn() {
+  if (stream && isSelectedDateToday()) startAutoCheckIn();
+  else stopAutoCheckIn();
+}
+
 // ---------------- Camera ----------------
 async function startCamera() {
   if (stream) return;
   if (!ui.video) return;
+
+  // starting camera is a user gesture -> try unlock speech here too
+  unlockSpeech();
 
   if (!navigator.mediaDevices?.getUserMedia) {
     setStatus("Your browser does not support camera access (getUserMedia).");
@@ -896,6 +987,9 @@ async function startCamera() {
 
     appendStatus(`Camera started ✅ (facingMode: ${facingMode})`);
     startLiveLoop();
+
+    // ✅ AUTO CHECK-IN only
+    syncAutoCheckIn();
   } catch (e) {
     stream = null;
     appendStatus(`Camera error: ${e?.message || e}`);
@@ -905,7 +999,10 @@ async function startCamera() {
 function stopCamera() {
   if (!stream) return;
 
+  // ✅ stop auto check-in + live loop
+  stopAutoCheckIn();
   stopLiveLoop();
+
   clearOverlay();
 
   const tracks = stream.getTracks();
@@ -916,6 +1013,8 @@ function stopCamera() {
 
   appendStatus("Camera stopped.");
   if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
+
+  liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
 }
 
 async function flipCamera() {
@@ -1144,6 +1243,7 @@ function setDateToToday() {
   ui.datePicker.value = isoDateLocal();
   renderLogs();
   updateCheckButtonsState();
+  syncAutoCheckIn();
 }
 
 // ---------------- Attendance actions ----------------
@@ -1238,48 +1338,61 @@ async function enroll() {
   renderProfiles();
 }
 
-async function attendance(type) {
+async function attendance(type, opts = { auto: false }) {
+  const isAuto = !!opts?.auto;
   const dateStr = ui.datePicker?.value || isoDateLocal();
 
-  if (dateStr !== isoDateLocal()) {
-    appendStatus("Range view is read-only. Set From = To to edit a single date.");
-    appendStatus("Check In/Out works ONLY on TODAY.");
-    return;
-  }
-
-  if (!stream) {
-    appendStatus(`${type}: Start the camera first.`);
-    return;
-  }
-
-  if (!modelsReady) {
-    appendStatus(`${type}: Models not ready yet.`);
-    return;
-  }
-
-  const threshold = Number(ui.threshold?.value ?? 0.55);
-
-  // Enforce today's only
-  if (!isSelectedDateToday()) {
-    appendStatus("Check In/Out is disabled for past dates.");
-    return;
-  }
-
-  // Disable buttons while processing
-  if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
-  if (ui.btnCheckOut) ui.btnCheckOut.disabled = true;
+  // Don't spam if already running
+  if (attendanceInProgress) return;
+  attendanceInProgress = true;
 
   try {
-    appendStatus(`${type}: Scanning…`);
+    if (dateStr !== isoDateLocal()) {
+      if (!isAuto) {
+        appendStatus(
+          "Range view is read-only. Set From = To to edit a single date."
+        );
+        appendStatus("Check In/Out works ONLY on TODAY.");
+      }
+      return;
+    }
+
+    if (!stream) {
+      if (!isAuto) appendStatus(`${type}: Start the camera first.`);
+      return;
+    }
+
+    if (!modelsReady) {
+      if (!isAuto) appendStatus(`${type}: Models not ready yet.`);
+      return;
+    }
+
+    const threshold = Number(ui.threshold?.value ?? 0.55);
+
+    // Enforce today's only
+    if (!isSelectedDateToday()) {
+      if (!isAuto) appendStatus("Check In/Out is disabled for past dates.");
+      return;
+    }
+
+    // Disable buttons while processing (manual only)
+    if (!isAuto) {
+      if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
+      if (ui.btnCheckOut) ui.btnCheckOut.disabled = true;
+    }
+
+    if (!isAuto) appendStatus(`${type}: Scanning…`);
 
     const scan = await getSingleDescriptorStrict();
     if (!scan?.descriptor) {
-      if (scan?.reason === "multiple") {
-        appendStatus(
-          `${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
-        );
-      } else {
-        appendStatus(`${type}: Face not detected.`);
+      if (!isAuto) {
+        if (scan?.reason === "multiple") {
+          appendStatus(
+            `${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
+          );
+        } else {
+          appendStatus(`${type}: Face not detected.`);
+        }
       }
       return;
     }
@@ -1311,15 +1424,26 @@ async function attendance(type) {
         (r.data?.errors
           ? Object.values(r.data.errors).flat().join(" ")
           : `HTTP ${r.status}`);
-      appendStatus(`${type}: ${msg}`);
+
+      // For AUTO mode, keep it quiet (optional)
+      if (!isAuto) appendStatus(`${type}: ${msg}`);
       return;
     }
 
+    const userId = r.data?.user?.id ?? null;
     const name = r.data?.user?.name || "Unknown";
 
-    appendStatus(`${type}: Saved ✅ (${name})`);
+    // Mark cooldown for auto
+    if (isAuto && userId) {
+      lastAutoCheckInUserId = userId;
+      lastAutoCheckInAt = Date.now();
+    }
+
+    // Only spam status log for manual
+    if (!isAuto) appendStatus(`${type}: Saved ✅ (${name})`);
 
     // ✅ Speak the REGISTERED name returned by backend
+    // NOTE: Auto speech may be blocked unless browser is unlocked (we unlock on Start/Buttons)
     const say = type === "check-in" ? "time in" : "time out";
     if (name && name !== "Unknown") speak(`${name} ${say}`);
     else speak("Unknown face. Please scan again.");
@@ -1345,6 +1469,7 @@ async function attendance(type) {
 
     renderLogs();
   } finally {
+    attendanceInProgress = false;
     updateCheckButtonsState();
   }
 }
@@ -1491,6 +1616,7 @@ function bindEvents() {
     ui.datePicker.addEventListener("change", () => {
       renderLogs();
       updateCheckButtonsState();
+      syncAutoCheckIn(); // ✅ auto check-in only if today + camera running
     });
   }
 
@@ -1500,20 +1626,21 @@ function bindEvents() {
     );
   }
 
-  // ✅ Unlock speech on click (required in some browsers)
+  // ✅ Manual check-in still available (optional)
   if (ui.btnCheckIn) {
     ui.btnCheckIn.addEventListener("click", () => {
       unlockSpeech();
-      attendance("check-in").catch((e) =>
+      attendance("check-in", { auto: false }).catch((e) =>
         appendStatus(`Check-in error: ${e?.message || e}`)
       );
     });
   }
 
+  // ✅ Check-out must be CLICKED (manual)
   if (ui.btnCheckOut) {
     ui.btnCheckOut.addEventListener("click", () => {
       unlockSpeech();
-      attendance("check-out").catch((e) =>
+      attendance("check-out", { auto: false }).catch((e) =>
         appendStatus(`Check-out error: ${e?.message || e}`)
       );
     });
@@ -1581,12 +1708,17 @@ function bindEvents() {
   }
 
   window.addEventListener("resize", () => requestAnimationFrame(resizeOverlayToVideo));
-  ui.video.addEventListener("loadedmetadata", () => requestAnimationFrame(resizeOverlayToVideo));
+  ui.video.addEventListener("loadedmetadata", () =>
+    requestAnimationFrame(resizeOverlayToVideo)
+  );
 
   // Optional: if you switch tabs, pause scanning and resume
   document.addEventListener("visibilitychange", () => {
     if (!PERF.PAUSE_WHEN_HIDDEN) return;
+
+    // auto also pauses via shouldAutoCheckInNow()
     if (!stream) return;
+
     if (document.hidden) {
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
     } else {
@@ -1630,6 +1762,10 @@ function bindEvents() {
       "Ready. Start camera. When it detects 1 face, it will show the person's NAME on the box if registered."
     );
     appendStatus("If not registered, the box will say: Not registered.");
+    appendStatus(
+      "AUTO check-in runs every 2 seconds when 1 registered face is visible."
+    );
+    appendStatus("Check-out is MANUAL (must click the button).");
     appendStatus(
       "Check In/Out works ONLY on TODAY. You can still browse history by changing date."
     );
