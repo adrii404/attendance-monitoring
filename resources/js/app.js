@@ -56,7 +56,7 @@ const ui = {
   nowLabel: el("nowLabel"),
 
   enrollName: el("enrollName"),
-  enrollEmail: el("enrollEmail"),
+  enrollContact: el("enrollContact"),
   enrollPassword: el("enrollPassword"),
   btnEnroll: el("btnEnroll"),
   profilesList: el("profilesList"),
@@ -96,12 +96,12 @@ const ui = {
   pwModalCancel: el("pwModalCancel"),
   pwModalOk: el("pwModalOk"),
 
-  toastWrap: el("toastWrap"),
-  toastPhoto: el("toastPhoto"),
-  toastName: el("toastName"),
-  toastDate: el("toastDate"),
-  toastTime: el("toastTime"),
-  toastAction: el("toastAction"),
+  // toastWrap: el("toastWrap"),
+  // toastPhoto: el("toastPhoto"),
+  // toastName: el("toastName"),
+  // toastDate: el("toastDate"),
+  // toastTime: el("toastTime"),
+  // toastAction: el("toastAction"),
   toastList: el("toastList"),
 };
 
@@ -196,7 +196,18 @@ let autoCheckInInFlight = false;
 let lastAutoCheckInUserId = null;
 let lastAutoCheckInAt = 0;
 
+let scanProgressUserId = null;
+let scanProgressStartAt = 0;
+let scanProgressPct = 0;
+let scanSuccessFlashUntil = 0;
+
 let toastTimer = null;
+
+function resetScanProgress() {
+  scanProgressUserId = null;
+  scanProgressStartAt = 0;
+  scanProgressPct = 0;
+}
 
 function showRightToast({ name, date, time, action, photoDataUrl }) {
   if (!ui.toastList) return;
@@ -725,7 +736,7 @@ function clearOverlay() {
   ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
 }
 
-function drawResultsWithLabels(results, labels) {
+function drawResultsWithLabels(results, labels, opts = {}) {
   const ctx = ui.overlay.getContext("2d");
   ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
 
@@ -735,11 +746,13 @@ function drawResultsWithLabels(results, labels) {
   faceapi.matchDimensions(ui.overlay, displaySize);
   const resized = faceapi.resizeResults(results, displaySize);
 
+  const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)"; // default blue
+
   for (let i = 0; i < resized.length; i++) {
     const box = resized[i].detection.box;
 
     ctx.lineWidth = 2;
-    ctx.strokeStyle = "rgba(56, 189, 248, 0.95)";
+    ctx.strokeStyle = stroke;
     ctx.strokeRect(box.x, box.y, box.width, box.height);
 
     const label = labels?.[i] || "";
@@ -758,6 +771,7 @@ function drawResultsWithLabels(results, labels) {
     }
   }
 }
+
 
 async function getSingleDescriptorStrict() {
   if (!ui.video) return { descriptor: null, reason: "none", count: 0 };
@@ -807,6 +821,7 @@ function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
 }
 
 // ✅ Live scan (throttled by setInterval) to show name while camera runs
+// ✅ Live scan (throttled by setInterval) to show name while camera runs
 async function runLiveScanOnce() {
   if (!stream || !modelsReady || !ui.video) return;
   if (scanInProgress) return;
@@ -828,11 +843,20 @@ async function runLiveScanOnce() {
       .withFaceDescriptors();
 
     const count = Array.isArray(results) ? results.length : 0;
+    const nowMs = Date.now();
+
+    const GREEN = "green";
+    const BLUE = "blue";
+    const RED   = "red";
+
 
     if (count === 0) {
       clearOverlay();
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
-      liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
+      liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+
+      // ✅ reset progress if no face
+      resetScanProgress();
       return;
     }
 
@@ -840,9 +864,12 @@ async function runLiveScanOnce() {
 
     if (count > 1) {
       for (let i = 0; i < count; i++) labels[i] = "Multiple faces";
-      drawResultsWithLabels(results, labels);
+      drawResultsWithLabels(results, labels, { strokeStyle: RED });
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Multiple faces";
-      liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
+      liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+
+      // ✅ reset progress if multiple faces
+      resetScanProgress();
       return;
     }
 
@@ -851,9 +878,12 @@ async function runLiveScanOnce() {
 
     if (!d) {
       labels[0] = "Face detected";
-      drawResultsWithLabels(results, labels);
+      drawResultsWithLabels(results, labels, { strokeStyle: BLUE });
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Face detected";
-      liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
+      liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+
+      // ✅ reset progress if no descriptor
+      resetScanProgress();
       return;
     }
 
@@ -861,28 +891,69 @@ async function runLiveScanOnce() {
     const resp = await serverMatchDescriptor(d, threshold);
 
     if (resp.matched && resp.user?.name) {
-      labels[0] = resp.user.name;
-      if (ui.liveDetectedName) ui.liveDetectedName.textContent = resp.user.name;
+      const uid = resp.user?.id ?? null;
+
+      // ✅ progress: reset if user changed
+      if (!uid) {
+        resetScanProgress();
+      } else if (scanProgressUserId !== uid) {
+        scanProgressUserId = uid;
+        scanProgressStartAt = nowMs;
+        scanProgressPct = 0;
+      } else if (!scanProgressStartAt) {
+        scanProgressStartAt = nowMs;
+      }
+
+      // ✅ compute 0–100% over the auto interval (2 seconds)
+      if (scanProgressStartAt) {
+        const elapsed = nowMs - scanProgressStartAt;
+        scanProgressPct = Math.max(
+          0,
+          Math.min(100, Math.round((elapsed / PERF.AUTO_CHECKIN_INTERVAL_MS) * 100))
+        );
+      } else {
+        scanProgressPct = 0;
+      }
+
+      // ✅ Decide color:
+      // - default scanning is BLUE
+      // - when progress hits 100% -> GREEN
+      // - after successful clock-in -> GREEN flash for a bit
+      const isFlashGreen = nowMs < scanSuccessFlashUntil;
+      const isReadyGreen = scanProgressPct >= 100;
+      const strokeStyle = isFlashGreen || isReadyGreen ? GREEN : BLUE;
+
+      const labelText = `${resp.user.name} ${scanProgressPct}%`;
+      labels[0] = labelText;
+
+      if (ui.liveDetectedName) ui.liveDetectedName.textContent = labelText;
 
       liveSingle = {
         matched: true,
-        userId: resp.user?.id ?? null,
+        userId: uid,
         name: resp.user.name,
-        updatedAt: Date.now(),
+        updatedAt: nowMs,
       };
+
+      drawResultsWithLabels(results, labels, { strokeStyle });
     } else {
       labels[0] = "Not registered";
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Not registered";
-      liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
-    }
 
-    drawResultsWithLabels(results, labels);
+      liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+
+      // ✅ reset progress if not registered
+      resetScanProgress();
+
+      drawResultsWithLabels(results, labels, { strokeStyle: RED });
+    }
   } catch {
     // ignore live scan errors
   } finally {
     scanInProgress = false;
   }
 }
+
 
 // ---------------- Live loop control (CPU-friendly) ----------------
 function startLiveLoop() {
@@ -905,7 +976,8 @@ function shouldAutoCheckInNow() {
 
   // must be exactly 1 registered face (set by live scan)
   if (!liveSingle.matched || !liveSingle.userId) return false;
-
+  // ✅ must reach 100% first
+  if (scanProgressPct < 100) return false;
   // prevent overlap
   if (attendanceInProgress || autoCheckInInFlight) return false;
 
@@ -931,12 +1003,7 @@ function startAutoCheckIn() {
       // ✅ AUTO = check-in only
       await attendance("check-in", { auto: true });
 
-      // if successful, attendance() already logs & toasts
-      // we mark cooldown by current liveSingle
-      if (liveSingle.userId) {
-        lastAutoCheckInUserId = liveSingle.userId;
-        lastAutoCheckInAt = Date.now();
-      }
+      
     } finally {
       autoCheckInInFlight = false;
     }
@@ -999,6 +1066,9 @@ async function startCamera() {
 function stopCamera() {
   if (!stream) return;
 
+  resetScanProgress();
+  scanSuccessFlashUntil = 0;
+
   // ✅ stop auto check-in + live loop
   stopAutoCheckIn();
   stopLiveLoop();
@@ -1016,6 +1086,7 @@ function stopCamera() {
 
   liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
 }
+
 
 async function flipCamera() {
   facingMode = facingMode === "user" ? "environment" : "user";
@@ -1249,15 +1320,15 @@ function setDateToToday() {
 // ---------------- Attendance actions ----------------
 async function enroll() {
   const name = (ui.enrollName?.value || "").trim();
-  const email = (ui.enrollEmail?.value || "").trim();
+  const contact_number = (ui.enrollContact?.value || "").trim();
   const password = (ui.enrollPassword?.value || "").trim();
 
   if (!name) {
     appendStatus("Enroll: Please enter a name.");
     return;
   }
-  if (!email) {
-    appendStatus("Enroll: Please enter an email.");
+  if (!contact_number) {
+    appendStatus("Enroll: Please enter a contact number.");
     return;
   }
   if (!password || password.length < 8) {
@@ -1314,7 +1385,7 @@ async function enroll() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name,
-      email,
+      contact_number,
       password,
       descriptor: Array.from(scan.descriptor),
       label: "Enrollment",
@@ -1333,7 +1404,7 @@ async function enroll() {
 
   appendStatus(`Enroll success ✅ user_id=${r.data?.user?.id ?? "?"}`);
   if (ui.enrollName) ui.enrollName.value = "";
-  if (ui.enrollEmail) ui.enrollEmail.value = "";
+  if (ui.enrollContact) ui.enrollContact.value = "";
   if (ui.enrollPassword) ui.enrollPassword.value = "";
   renderProfiles();
 }
@@ -1433,6 +1504,11 @@ async function attendance(type, opts = { auto: false }) {
     const userId = r.data?.user?.id ?? null;
     const name = r.data?.user?.name || "Unknown";
 
+    // ✅ ADD THIS HERE (success path)
+    if (type === "check-in") {
+      scanSuccessFlashUntil = Date.now() + 1200; // 1.2s green flash
+      resetScanProgress();
+    }
     // Mark cooldown for auto
     if (isAuto && userId) {
       lastAutoCheckInUserId = userId;
@@ -1621,10 +1697,12 @@ function bindEvents() {
   }
 
   if (ui.btnEnroll) {
-    ui.btnEnroll.addEventListener("click", () =>
-      enroll().catch((e) => appendStatus(`Enroll error: ${e?.message || e}`))
-    );
+    ui.btnEnroll.addEventListener("click", (e) => {
+      e.preventDefault();
+      enroll().catch((err) => appendStatus(`Enroll error: ${err?.message || err}`));
+    });
   }
+  
 
   // ✅ Manual check-in still available (optional)
   if (ui.btnCheckIn) {
