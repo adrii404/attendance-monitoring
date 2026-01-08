@@ -56,7 +56,7 @@ const ui = {
   nowLabel: el("nowLabel"),
 
   enrollName: el("enrollName"),
-  enrollEmail: el("enrollEmail"),
+  enrollContact: el("enrollContact"),
   enrollPassword: el("enrollPassword"),
   btnEnroll: el("btnEnroll"),
   profilesList: el("profilesList"),
@@ -1320,15 +1320,15 @@ function setDateToToday() {
 // ---------------- Attendance actions ----------------
 async function enroll() {
   const name = (ui.enrollName?.value || "").trim();
-  const email = (ui.enrollEmail?.value || "").trim();
+  const contact_number = (ui.enrollContact?.value || "").trim();
   const password = (ui.enrollPassword?.value || "").trim();
 
   if (!name) {
     appendStatus("Enroll: Please enter a name.");
     return;
   }
-  if (!email) {
-    appendStatus("Enroll: Please enter an email.");
+  if (!contact_number) {
+    appendStatus("Enroll: Please enter a contact number.");
     return;
   }
   if (!password || password.length < 8) {
@@ -1385,7 +1385,7 @@ async function enroll() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name,
-      email,
+      contact_number,
       password,
       descriptor: Array.from(scan.descriptor),
       label: "Enrollment",
@@ -1404,7 +1404,7 @@ async function enroll() {
 
   appendStatus(`Enroll success ✅ user_id=${r.data?.user?.id ?? "?"}`);
   if (ui.enrollName) ui.enrollName.value = "";
-  if (ui.enrollEmail) ui.enrollEmail.value = "";
+  if (ui.enrollContact) ui.enrollContact.value = "";
   if (ui.enrollPassword) ui.enrollPassword.value = "";
   renderProfiles();
 }
@@ -1697,10 +1697,12 @@ function bindEvents() {
   }
 
   if (ui.btnEnroll) {
-    ui.btnEnroll.addEventListener("click", () =>
-      enroll().catch((e) => appendStatus(`Enroll error: ${e?.message || e}`))
-    );
+    ui.btnEnroll.addEventListener("click", (e) => {
+      e.preventDefault();
+      enroll().catch((err) => appendStatus(`Enroll error: ${err?.message || err}`));
+    });
   }
+  
 
   // ✅ Manual check-in still available (optional)
   if (ui.btnCheckIn) {

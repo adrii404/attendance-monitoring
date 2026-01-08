@@ -80,7 +80,7 @@ class FaceController extends Controller
     {
         $rows = FaceProfile::query()
             ->where('is_active', true)
-            ->with('user:id,name,email')
+            ->with('user:id,name,contact_number')
             ->latest()
             ->get(['id', 'user_id', 'label', 'created_at']);
 
@@ -90,7 +90,7 @@ class FaceController extends Controller
                 'face_profile_id' => $p->id,
                 'user_id' => $p->user_id,
                 'name' => $p->user?->name,
-                'email' => $p->user?->email,
+                'contact_number' => $p->user?->contact_number,
                 'label' => $p->label,
                 'created_at' => $p->created_at?->toISOString(),
             ])->values(),
