@@ -91,11 +91,11 @@
                                     <input id="enrollName" type="text" placeholder="e.g., Juan Dela Cruz"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
         
-                                    <input id="enrollEmail" type="email" placeholder="Email"
+                                    <!-- <input id="enrollEmail" type="email" placeholder="Email"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
         
                                     <input id="enrollPassword" type="password" placeholder="Password"
-                                        class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+                                        class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" /> -->
         
                                     <div class="flex flex-wrap items-center gap-2 pt-1">
                                         <button id="btnEnroll" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
