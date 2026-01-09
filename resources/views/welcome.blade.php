@@ -51,12 +51,13 @@
                                 <div class="text-xs font-semibold text-slate-200">Logs (selected day)</div>
                                 <div class="text-[11px] text-slate-400"><span id="logsCount">0</span> people</div>
                             </div>
+
                             <div class="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
                                 <div class="text-xs text-slate-300">Selected date</div>
 
                                 <div class="mt-2 flex items-center gap-2">
                                     <input id="datePicker" type="date" class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60">
-                                    <button id="btnToday" type="button"  class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Today</button>
+                                    <button id="btnToday" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Today</button>
                                 </div>
 
                                 <div class="mt-2 flex items-center justify-between text-[11px] text-slate-400">
@@ -64,6 +65,7 @@
                                     <span id="nowLabel">—</span>
                                 </div>
                             </div>
+
                             <div class="mt-2 overflow-hidden rounded-2xl border border-white/10">
                                 <table class="w-full text-left text-xs">
                                     <thead class="bg-white/10 text-slate-200">
@@ -71,20 +73,22 @@
                                             <th class="px-3 py-2">Name</th>
                                             <th class="px-3 py-2">Time In</th>
                                             <th class="px-3 py-2">Time Out</th>
+                                            <th class="px-3 py-2">Role</th>
                                             <th class="px-3 py-2">Photo</th>
                                         </tr>
                                     </thead>
                                     <tbody id="logsTbody" class="divide-y divide-white/10 bg-slate-950/40"></tbody>
                                 </table>
                             </div>
-
                         </div>
+
                         <div id="adminPanel" class="hidden mt-4">
                             <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
                                 <div>
                                     <div class="text-sm font-semibold">Enroll person</div>
                                     <div class="text-xs text-slate-300">Add a face profile locally (name + face descriptor).</div>
                                 </div>
+
                                 <div class="mt-3 grid gap-2">
                                     <label class="text-xs text-slate-300">Full name</label>
 
@@ -97,14 +101,14 @@
                                     <input id="enrollPassword" type="password" placeholder="Password"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
 
-                                        <select id="enrollRole" class="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-slate-100">
-                                                <option value="">Select role</option>
-                                                <option value="1">ADMIN</option>
-                                                <option value="2">IT</option>
-                                                <option value="3">CSR</option>
-                                                <option value="4">TECHNICAL</option>
-                                        </select>
-        
+                                    <select id="enrollRole" class="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-slate-100">
+                                        <option value="">Select role</option>
+                                        <option value="1">ADMIN</option>
+                                        <option value="2">IT</option>
+                                        <option value="3">CSR</option>
+                                        <option value="4">TECHNICAL</option>
+                                    </select>
+
                                     <div class="flex flex-wrap items-center gap-2 pt-1">
                                         <button id="btnEnroll" type="button" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
                                             Capture & Save
@@ -121,7 +125,8 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class=" mt-4 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+
+                            <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
                                 <div class="text-xs text-slate-300">Threshold (lower = stricter) — Admin only</div>
 
                                 <div class="mt-2 flex items-center gap-3">
@@ -131,6 +136,7 @@
 
                                 <div class="mt-1 text-[11px] text-slate-400">Tip: 0.50–0.60 is a common starting range.</div>
                             </div>
+
                             <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-3">
                                 <div class="flex items-start justify-between gap-3">
                                     <div>
@@ -157,7 +163,6 @@
                             <div class="mt-3 flex flex-wrap items-center gap-2">
                                 <button id="btnDownloadDay" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download CSV (selected day)</button>
 
-                                <!-- ✅ NEW: Excel export -->
                                 <button id="btnDownloadDayXlsx" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">
                                     Download Excel (selected day)
                                 </button>
@@ -166,6 +171,7 @@
                                 <button id="btnClearDay" type="button" class="rounded-xl bg-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/30">Clear selected day</button>
                             </div>
                         </div>
+
                         <div class="mt-4 flex justify-end">
                             <button id="btnAdminToggle" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 cursor-pointer">Admin Access</button>
                         </div>
@@ -193,7 +199,6 @@
                                 <canvas id="overlay" class="pointer-events-none absolute inset-0"></canvas>
                             </div>
 
-                            <!-- ✅ everything else OUTSIDE videoWrap -->
                             <div class="mt-2 rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm">
                                 <span class="text-slate-400">Detected:</span>
                                 <span id="liveDetectedName" class="font-semibold text-emerald-300">—</span>
@@ -211,9 +216,9 @@
                                 </div>
                             </div>
                         </div>
-
                     </div>
                 </section>
+
                 <section>
                     <div id="toastList" class="space-y-3"></div>
                 </section>
@@ -244,8 +249,7 @@
                 </div>
             </div>
 
-            <footer class="mt-8 text-center text-[11px] text-slate-500">
-            </footer>
+            <footer class="mt-8 text-center text-[11px] text-slate-500"></footer>
         </main>
     </body>
 </html>

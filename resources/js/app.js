@@ -19,6 +19,11 @@ import { saveAs } from "file-saver";
  * ✅ NEW RULE:
  * - AUTO CAPTURE for CHECK-IN only (every 2 seconds) when 1 registered face is seen
  * - CHECK-OUT must be clicked via button (manual)
+ *
+ * ✅ NEW:
+ * - Role shown in Logs table
+ * - Excel export includes role
+ * - Excel export groups rows into separate TABLE SECTIONS per ROLE (same worksheet)
  */
 
 const MODELS_URL =
@@ -72,7 +77,6 @@ const ui = {
   btnDownloadDayJson: el("btnDownloadDayJson"),
   btnClearDay: el("btnClearDay"),
 
-  // ✅ NEW: Excel export button
   btnDownloadDayXlsx: el("btnDownloadDayXlsx"),
 
   logsTbody: el("logsTbody"),
@@ -87,14 +91,11 @@ const ui = {
   btnExportProfiles: el("btnExportProfiles"),
   importProfiles: el("importProfiles"),
 
-  // ✅ Live detected name label
   liveDetectedName: el("liveDetectedName"),
 
-  // ✅ Admin toggle + admin panel wrapper
   btnAdminToggle: el("btnAdminToggle"),
   adminPanel: el("adminPanel"),
 
-  // ✅ Password modal (masked input)
   pwModal: el("pwModal"),
   pwModalTitle: el("pwModalTitle"),
   pwModalDesc: el("pwModalDesc"),
@@ -107,38 +108,28 @@ const ui = {
 
 // ---------------- Lite/Performance knobs ----------------
 const PERF = {
-  // Live scanning: lower = faster/less accurate, higher = slower/more accurate
   LIVE_INPUT_SIZE: 160,
   LIVE_SCORE_THRESHOLD: 0.5,
   LIVE_SCAN_INTERVAL_MS: 650,
 
-  // Action scans (button clicks): more accurate than live, still not too heavy
   ACTION_INPUT_SIZE: 224,
   ACTION_SCORE_THRESHOLD: 0.5,
 
-  // ✅ Auto check-in: tries every 2 seconds (only when 1 registered face is seen)
   AUTO_CHECKIN_INTERVAL_MS: 2000,
-
-  // ✅ Prevent spamming same person while they stand still
   AUTO_CHECKIN_SAME_USER_COOLDOWN_MS: 8000,
 
-  // Major CPU saver: drawing landmarks is expensive
   DRAW_LANDMARKS: false,
 
-  // Lower camera decode cost
   CAMERA_IDEAL_WIDTH: 640,
   CAMERA_IDEAL_HEIGHT: 480,
 
-  // Stored photos for logs (UI + backend)
   PHOTO_LOG_MAX_WIDTH: 420,
   PHOTO_LOG_QUALITY: 0.65,
 
-  // Pause scanning if tab hidden (saves CPU)
   PAUSE_WHEN_HIDDEN: true,
 };
 
 // ---------------- Voice (Text-to-Speech) ----------------
-// ✅ IMPORTANT: Some browsers require a user gesture first, so we "unlock" speech
 let voiceEnabled = true;
 let speechUnlocked = false;
 
@@ -158,7 +149,6 @@ function speak(text) {
   if (!voiceEnabled) return;
   if (!("speechSynthesis" in window)) return;
 
-  // avoid queued/overlapping speech
   window.speechSynthesis.cancel();
 
   const u = new SpeechSynthesisUtterance(text);
@@ -201,8 +191,6 @@ let scanProgressStartAt = 0;
 let scanProgressPct = 0;
 let scanSuccessFlashUntil = 0;
 
-let toastTimer = null;
-
 function resetScanProgress() {
   scanProgressUserId = null;
   scanProgressStartAt = 0;
@@ -242,16 +230,13 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
     </div>
   `;
 
-  // ✅ newest on top
   ui.toastList.prepend(wrap);
 
-  // fade in (next tick)
   requestAnimationFrame(() => {
     wrap.classList.remove("opacity-0");
     wrap.classList.add("opacity-100");
   });
 
-  // fade out after 3s, then remove from DOM
   setTimeout(() => {
     wrap.classList.remove("opacity-100");
     wrap.classList.add("opacity-0");
@@ -278,9 +263,7 @@ async function safeFetchJson(url, options = {}) {
     let data = null;
     try {
       data = await res.json();
-    } catch (_) {
-      // ignore non-json
-    }
+    } catch (_) {}
 
     return { ok: res.ok, status: res.status, data };
   } catch (e) {
@@ -291,10 +274,8 @@ async function safeFetchJson(url, options = {}) {
 async function serverMatchDescriptor(descriptor, threshold) {
   const nowMs = Date.now();
 
-  // If a request is already in-flight, reuse the last result
   if (serverMatchInFlight) return lastServerMatchResult;
 
-  // Throttle calls
   if (nowMs - lastServerMatchAt < SERVER_MATCH_MIN_INTERVAL_MS)
     return lastServerMatchResult;
 
@@ -337,7 +318,6 @@ let liveTimer = null;
 let adminUnlockedThreshold = false;
 let lastThresholdValue = null;
 
-// ✅ prevent overlapping attendance calls
 let attendanceInProgress = false;
 
 // ---------------- Utilities ----------------
@@ -377,7 +357,6 @@ function setModelPill(state, label) {
 
   ui.modelStatusText.textContent = label || "";
 
-  // state: "loading" | "ready" | "error"
   ui.statusDot.className =
     "inline-block h-2 w-2 rounded-full " +
     (state === "ready"
@@ -415,7 +394,6 @@ function safeSetLocalStorage(key, value) {
   }
 }
 
-// ✅ today-only helper
 function isSelectedDateToday() {
   const selected = ui.datePicker?.value || isoDateLocal();
   return selected === isoDateLocal();
@@ -442,14 +420,13 @@ function updateCheckButtonsState() {
     : `${baseOff} bg-white/10`;
 }
 
-// ---------------- Masked password modal (replaces prompt) ----------------
+// ---------------- Masked password modal ----------------
 function promptPasswordModal({
   title = "Admin password",
   desc = "Enter password",
   placeholder = "Password",
 } = {}) {
   return new Promise((resolve) => {
-    // Fallback if modal not in DOM (won't be masked)
     if (
       !ui.pwModal ||
       !ui.pwModalInput ||
@@ -471,7 +448,6 @@ function promptPasswordModal({
     ui.pwModal.classList.remove("hidden");
     ui.pwModal.classList.add("flex");
 
-    // Focus next tick
     setTimeout(() => ui.pwModalInput.focus(), 0);
 
     const cleanup = () => {
@@ -583,7 +559,7 @@ async function requireAdmin(actionLabel = "this action") {
   return true;
 }
 
-// ---------------- Admin session toggle (show/hide panel) ----------------
+// ---------------- Admin session toggle ----------------
 function isAdminLoggedIn() {
   return localStorage.getItem(STORAGE_ADMIN_SESSION) === "1";
 }
@@ -599,10 +575,8 @@ function applyAdminUiState() {
   if (ui.btnAdminToggle)
     ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
 
-  // threshold can be interacted with immediately while admin is logged in
   adminUnlockedThreshold = on;
 
-  // When logging out, snap slider back to last known value (optional safety)
   if (!on && lastThresholdValue !== null) {
     setThresholdValue(lastThresholdValue);
   }
@@ -655,7 +629,7 @@ function addLog(dateStr, record) {
   saveLogs(logs);
 }
 
-// ✅ one row per person per day summary
+// ✅ one row per person per day summary (INCLUDES ROLE)
 function buildDaySummary(dateStr) {
   const logs = getLogsForDate(dateStr);
   const map = new Map();
@@ -666,6 +640,7 @@ function buildDaySummary(dateStr) {
     if (!map.has(r.name)) {
       map.set(r.name, {
         name: r.name,
+        role: r.role || "Unknown",
         time_in: null,
         time_out: null,
         photo_in: null,
@@ -674,6 +649,11 @@ function buildDaySummary(dateStr) {
     }
 
     const item = map.get(r.name);
+
+    // keep a role if we have it
+    if (!item.role || item.role === "Unknown") {
+      if (r.role) item.role = r.role;
+    }
 
     if (r.type === "check-in") {
       if (!item.time_in || (r.time && r.time < item.time_in)) {
@@ -721,11 +701,9 @@ function resizeOverlayToVideo() {
   const w = Math.max(1, Math.round(rect.width));
   const h = Math.max(1, Math.round(rect.height));
 
-  // Canvas internal resolution matches displayed pixels
   ui.overlay.width = w;
   ui.overlay.height = h;
 
-  // Make sure canvas element visually matches too
   ui.overlay.style.width = w + "px";
   ui.overlay.style.height = h + "px";
 }
@@ -746,7 +724,7 @@ function drawResultsWithLabels(results, labels, opts = {}) {
   faceapi.matchDimensions(ui.overlay, displaySize);
   const resized = faceapi.resizeResults(results, displaySize);
 
-  const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)"; // default blue
+  const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)";
 
   for (let i = 0; i < resized.length; i++) {
     const box = resized[i].detection.box;
@@ -819,7 +797,7 @@ function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
   }
 }
 
-// ✅ Live scan (throttled by setInterval) to show name while camera runs
+// ✅ Live scan
 async function runLiveScanOnce() {
   if (!stream || !modelsReady || !ui.video) return;
   if (scanInProgress) return;
@@ -851,8 +829,6 @@ async function runLiveScanOnce() {
       clearOverlay();
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
       liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
-
-      // ✅ reset progress if no face
       resetScanProgress();
       return;
     }
@@ -864,8 +840,6 @@ async function runLiveScanOnce() {
       drawResultsWithLabels(results, labels, { strokeStyle: RED });
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Multiple faces";
       liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
-
-      // ✅ reset progress if multiple faces
       resetScanProgress();
       return;
     }
@@ -878,19 +852,15 @@ async function runLiveScanOnce() {
       drawResultsWithLabels(results, labels, { strokeStyle: BLUE });
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Face detected";
       liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
-
-      // ✅ reset progress if no descriptor
       resetScanProgress();
       return;
     }
 
-    // ✅ DB-driven match via Laravel (face_profiles table)
     const resp = await serverMatchDescriptor(d, threshold);
 
     if (resp.matched && resp.user?.name) {
       const uid = resp.user?.id ?? null;
 
-      // ✅ progress: reset if user changed
       if (!uid) {
         resetScanProgress();
       } else if (scanProgressUserId !== uid) {
@@ -901,7 +871,6 @@ async function runLiveScanOnce() {
         scanProgressStartAt = nowMs;
       }
 
-      // ✅ compute 0–100% over the auto interval (2 seconds)
       if (scanProgressStartAt) {
         const elapsed = nowMs - scanProgressStartAt;
         scanProgressPct = Math.max(
@@ -912,10 +881,6 @@ async function runLiveScanOnce() {
         scanProgressPct = 0;
       }
 
-      // ✅ Decide color:
-      // - default scanning is BLUE
-      // - when progress hits 100% -> GREEN
-      // - after successful clock-in -> GREEN flash for a bit
       const isFlashGreen = nowMs < scanSuccessFlashUntil;
       const isReadyGreen = scanProgressPct >= 100;
       const strokeStyle = isFlashGreen || isReadyGreen ? GREEN : BLUE;
@@ -938,20 +903,16 @@ async function runLiveScanOnce() {
       if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Not registered";
 
       liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
-
-      // ✅ reset progress if not registered
       resetScanProgress();
 
       drawResultsWithLabels(results, labels, { strokeStyle: RED });
     }
   } catch {
-    // ignore live scan errors
   } finally {
     scanInProgress = false;
   }
 }
 
-// ---------------- Live loop control (CPU-friendly) ----------------
 function startLiveLoop() {
   if (liveTimer) return;
   liveTimer = setInterval(() => {
@@ -970,14 +931,10 @@ function shouldAutoCheckInNow() {
   if (!isSelectedDateToday()) return false;
   if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return false;
 
-  // must be exactly 1 registered face (set by live scan)
   if (!liveSingle.matched || !liveSingle.userId) return false;
-  // ✅ must reach 100% first
   if (scanProgressPct < 100) return false;
-  // prevent overlap
   if (attendanceInProgress || autoCheckInInFlight) return false;
 
-  // cooldown for same person standing in front
   const nowMs = Date.now();
   if (
     lastAutoCheckInUserId === liveSingle.userId &&
@@ -996,7 +953,6 @@ function startAutoCheckIn() {
 
     autoCheckInInFlight = true;
     try {
-      // ✅ AUTO = check-in only
       await attendance("check-in", { auto: true });
     } finally {
       autoCheckInInFlight = false;
@@ -1011,7 +967,6 @@ function stopAutoCheckIn() {
   autoCheckInInFlight = false;
 }
 
-// keep auto check-in in sync with camera/date
 function syncAutoCheckIn() {
   if (stream && isSelectedDateToday()) startAutoCheckIn();
   else stopAutoCheckIn();
@@ -1022,7 +977,6 @@ async function startCamera() {
   if (stream) return;
   if (!ui.video) return;
 
-  // starting camera is a user gesture -> try unlock speech here too
   unlockSpeech();
 
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -1049,7 +1003,6 @@ async function startCamera() {
     appendStatus(`Camera started ✅ (facingMode: ${facingMode})`);
     startLiveLoop();
 
-    // ✅ AUTO CHECK-IN only
     syncAutoCheckIn();
   } catch (e) {
     stream = null;
@@ -1063,7 +1016,6 @@ function stopCamera() {
   resetScanProgress();
   scanSuccessFlashUntil = 0;
 
-  // ✅ stop auto check-in + live loop
   stopAutoCheckIn();
   stopLiveLoop();
 
@@ -1093,12 +1045,10 @@ async function flipCamera() {
 
 // ---------------- UI rendering ----------------
 async function renderProfiles() {
-  // If you haven't mounted profilesList/enrolledCount in the UI yet, just skip safely
   if (!ui.profilesList || !ui.enrolledCount) return;
 
   ui.profilesList.innerHTML = "";
 
-  // Try DB-backed list first (optional endpoint)
   const server = await safeFetchJson("/api/face/profiles", { method: "GET" });
 
   if (server.ok && Array.isArray(server.data?.profiles)) {
@@ -1135,7 +1085,6 @@ async function renderProfiles() {
     return;
   }
 
-  // Fallback (legacy localStorage profiles)
   const profiles = getProfiles();
   ui.enrolledCount.textContent = String(profiles.length);
 
@@ -1183,21 +1132,32 @@ async function renderProfiles() {
   });
 }
 
+function extractRoleFromUser(user) {
+  // supports many possible shapes
+  return (
+    user?.role_name ||
+    user?.role?.name ||
+    user?.role?.title ||
+    user?.role ||
+    user?.roleLabel ||
+    "Unknown"
+  );
+}
+
 async function renderLogs() {
   if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
 
   const dateStr = ui.datePicker.value || isoDateLocal();
 
-  // Try DB-backed logs first (optional endpoint)
   const server = await safeFetchJson(
     `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
     { method: "GET" }
   );
 
+  // DB-backed logs (if your endpoint returns role, it will show; else "—")
   if (server.ok && Array.isArray(server.data?.logs)) {
     const logs = server.data.logs;
 
-    // Convert server logs -> per-person summary (same UI)
     const map = new Map();
 
     for (const r of logs) {
@@ -1205,6 +1165,7 @@ async function renderLogs() {
       if (!map.has(name)) {
         map.set(name, {
           name,
+          role: r.role_name || r.role || r.role_label || "Unknown",
           time_in: null,
           time_out: null,
           photo_in: null,
@@ -1212,6 +1173,11 @@ async function renderLogs() {
         });
       }
       const item = map.get(name);
+
+      if (!item.role || item.role === "Unknown") {
+        const rr = r.role_name || r.role || r.role_label;
+        if (rr) item.role = rr;
+      }
 
       const t = r.occurred_at ? new Date(r.occurred_at) : null;
       const timeStr = t ? timeLocal(t) : "—";
@@ -1232,7 +1198,7 @@ async function renderLogs() {
     if (!rows.length) {
       ui.logsTbody.innerHTML = `
         <tr>
-          <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
+          <td class="px-3 py-3 text-slate-400" colspan="5">No logs for ${dateStr}.</td>
         </tr>
       `;
       return;
@@ -1250,6 +1216,7 @@ async function renderLogs() {
         <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
           r.time_out || "—"
         )}</td>
+        <td class="px-3 py-2 text-[11px] text-slate-300">${escapeHtml(r.role || "—")}</td>
         <td class="px-3 py-2">
           <span class="text-slate-500 text-[11px]">—</span>
         </td>
@@ -1269,7 +1236,7 @@ async function renderLogs() {
   if (!rows.length) {
     ui.logsTbody.innerHTML = `
       <tr>
-        <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
+        <td class="px-3 py-3 text-slate-400" colspan="5">No logs for ${dateStr}.</td>
       </tr>
     `;
     return;
@@ -1289,6 +1256,7 @@ async function renderLogs() {
       <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
         r.time_out || "—"
       )}</td>
+      <td class="px-3 py-2 text-[11px] text-slate-300">${escapeHtml(r.role || "Unknown")}</td>
       <td class="px-3 py-2">
         ${
           photo
@@ -1329,13 +1297,10 @@ async function enroll() {
     appendStatus("Enroll: Password must be at least 8 characters.");
     return;
   }
-
-
   if (!roleId) {
-  appendStatus("Enroll: Please select a role.");
-  return;
-}
-
+    appendStatus("Enroll: Please select a role.");
+    return;
+  }
   if (!stream) {
     appendStatus("Enroll: Start the camera first.");
     return;
@@ -1344,8 +1309,6 @@ async function enroll() {
     appendStatus("Enroll: Models not ready yet.");
     return;
   }
-
-  
 
   appendStatus("Enroll: Capturing face…");
 
@@ -1363,7 +1326,6 @@ async function enroll() {
 
   const threshold = Number(ui.threshold?.value ?? 0.55);
 
-  // Optional: block enrolling if already matches someone (avoid duplicates)
   const matchResp = await safeFetchJson("/api/face/match", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1416,16 +1378,13 @@ async function attendance(type, opts = { auto: false }) {
   const isAuto = !!opts?.auto;
   const dateStr = ui.datePicker?.value || isoDateLocal();
 
-  // Don't spam if already running
   if (attendanceInProgress) return;
   attendanceInProgress = true;
 
   try {
     if (dateStr !== isoDateLocal()) {
       if (!isAuto) {
-        appendStatus(
-          "Range view is read-only. Set From = To to edit a single date."
-        );
+        appendStatus("Range view is read-only. Set date to TODAY to log.");
         appendStatus("Check In/Out works ONLY on TODAY.");
       }
       return;
@@ -1443,13 +1402,11 @@ async function attendance(type, opts = { auto: false }) {
 
     const threshold = Number(ui.threshold?.value ?? 0.55);
 
-    // Enforce today's only
     if (!isSelectedDateToday()) {
       if (!isAuto) appendStatus("Check In/Out is disabled for past dates.");
       return;
     }
 
-    // Disable buttons while processing (manual only)
     if (!isAuto) {
       if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
       if (ui.btnCheckOut) ui.btnCheckOut.disabled = true;
@@ -1471,13 +1428,11 @@ async function attendance(type, opts = { auto: false }) {
       return;
     }
 
-    // Optional: capture a small photo for your logs (UI + backend)
     const photo = capturePhotoDataUrlScaled(
       PERF.PHOTO_LOG_MAX_WIDTH,
       PERF.PHOTO_LOG_QUALITY
     );
 
-    // Map UI type -> backend type (AttendanceController expects "in" / "out")
     const apiType = type === "check-in" ? "in" : "out";
 
     const r = await safeFetchJson("/api/attendance/clock", {
@@ -1498,31 +1453,26 @@ async function attendance(type, opts = { auto: false }) {
         (r.data?.errors
           ? Object.values(r.data.errors).flat().join(" ")
           : `HTTP ${r.status}`);
-
-      // For AUTO mode, keep it quiet (optional)
       if (!isAuto) appendStatus(`${type}: ${msg}`);
       return;
     }
 
     const userId = r.data?.user?.id ?? null;
     const name = r.data?.user?.name || "Unknown";
+    const role = extractRoleFromUser(r.data?.user);
 
-    // ✅ ADD THIS HERE (success path)
     if (type === "check-in") {
-      scanSuccessFlashUntil = Date.now() + 1200; // 1.2s green flash
+      scanSuccessFlashUntil = Date.now() + 1200;
       resetScanProgress();
     }
-    // Mark cooldown for auto
+
     if (isAuto && userId) {
       lastAutoCheckInUserId = userId;
       lastAutoCheckInAt = Date.now();
     }
 
-    // Only spam status log for manual
     if (!isAuto) appendStatus(`${type}: Saved ✅ (${name})`);
 
-    // ✅ Speak the REGISTERED name returned by backend
-    // NOTE: Auto speech may be blocked unless browser is unlocked (we unlock on Start/Buttons)
     const say = type === "check-in" ? "time in" : "time out";
     if (name && name !== "Unknown") speak(`${name} ${say}`);
     else speak("Unknown face. Please scan again.");
@@ -1531,15 +1481,16 @@ async function attendance(type, opts = { auto: false }) {
 
     showRightToast({
       name,
-      date: dateStr, // YYYY-MM-DD
-      time: timeLocal(now()), // HH:mm:ss
+      date: dateStr,
+      time: timeLocal(now()),
       action: actionLabel,
-      photoDataUrl: photo || null, // the captured image
+      photoDataUrl: photo || null,
     });
 
-    // ✅ Update UI table immediately (local UI cache only; DB is the source of truth)
+    // ✅ store ROLE in local UI cache
     addLog(dateStr, {
       name,
+      role: role || "Unknown",
       type,
       time: timeLocal(now()),
       photo_data_url: photo || null,
@@ -1572,12 +1523,13 @@ function downloadDayCsv() {
   const dateStr = ui.datePicker?.value || isoDateLocal();
   const logs = getLogsForDate(dateStr);
 
-  const headers = ["name", "type", "time", "photo_data_url"];
+  const headers = ["name", "role", "type", "time", "photo_data_url"];
   const lines = [headers.join(",")];
 
   for (const r of logs) {
     const row = [
       (r?.name || "").replaceAll('"', '""'),
+      (r?.role || "").replaceAll('"', '""'),
       (r?.type || "").replaceAll('"', '""'),
       (r?.time || "").replaceAll('"', '""'),
       (r?.photo_data_url || "").replaceAll('"', '""'),
@@ -1594,7 +1546,7 @@ function downloadDayJson() {
   downloadText(`attendance_${dateStr}.json`, JSON.stringify(logs, null, 2));
 }
 
-// ---------------- ✅ Excel export (XLSX with embedded photo) ----------------
+// ---------------- ✅ Excel export (XLSX) — separated TABLES per ROLE ----------------
 function parseImageDataUrl(dataUrl) {
   const s = String(dataUrl || "");
   const m = s.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
@@ -1605,10 +1557,109 @@ function parseImageDataUrl(dataUrl) {
   return { extension: ext, base64: m[2] };
 }
 
+function groupByRole(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    const role = (r.role || "Unknown").trim() || "Unknown";
+    if (!groups.has(role)) groups.set(role, []);
+    groups.get(role).push(r);
+  }
+
+  const sortedRoles = Array.from(groups.keys()).sort((a, b) => {
+    if (a === "Unknown") return 1;
+    if (b === "Unknown") return -1;
+    return a.localeCompare(b);
+  });
+
+  return { groups, sortedRoles };
+}
+
+function thinBorder() {
+  return {
+    top: { style: "thin" },
+    left: { style: "thin" },
+    bottom: { style: "thin" },
+    right: { style: "thin" },
+  };
+}
+
+function applyBorderRange(ws, r1, r2, c1, c2) {
+  for (let r = r1; r <= r2; r++) {
+    for (let c = c1; c <= c2; c++) {
+      ws.getCell(r, c).border = thinBorder();
+    }
+  }
+}
+
+// Writes one "role table" section and returns next row index
+function writeRoleSection({ wb, ws, startRow, roleName, rows }) {
+  let r = startRow;
+
+  // Title row (merged across A..E)
+  ws.mergeCells(r, 1, r, 5);
+  const titleCell = ws.getCell(r, 1);
+  titleCell.value = `ROLE: ${roleName}`;
+  titleCell.font = { bold: true, size: 12 };
+  titleCell.alignment = { vertical: "middle", horizontal: "left" };
+  ws.getRow(r).height = 20;
+
+  r += 1;
+
+  // Header row
+  const headerRow = ws.getRow(r);
+  headerRow.values = ["Name", "Role", "Time In", "Time Out", "Photo"];
+  headerRow.font = { bold: true };
+  headerRow.alignment = { vertical: "middle", horizontal: "left" };
+  headerRow.height = 18;
+
+  r += 1;
+
+  const firstDataRow = r;
+
+  for (let i = 0; i < rows.length; i++) {
+    const item = rows[i];
+    const rowNum = r + i;
+
+    ws.getCell(rowNum, 1).value = item.name || "";
+    ws.getCell(rowNum, 2).value = item.role || "Unknown";
+    ws.getCell(rowNum, 3).value = item.time_in || "";
+    ws.getCell(rowNum, 4).value = item.time_out || "";
+    ws.getCell(rowNum, 5).value = "";
+
+    const excelRow = ws.getRow(rowNum);
+    excelRow.height = 52;
+    excelRow.alignment = { vertical: "middle", horizontal: "left" };
+
+    const photo = item.photo_in || item.photo_out || null;
+    const img = parseImageDataUrl(photo);
+    if (img) {
+      const imageId = wb.addImage({
+        base64: img.base64,
+        extension: img.extension,
+      });
+
+      // Photo column = E => col=4 (0-based); row=(rowNum-1)
+      ws.addImage(imageId, {
+        tl: { col: 4, row: rowNum - 1 },
+        ext: { width: 72, height: 48 },
+      });
+    }
+  }
+
+  const lastDataRow = firstDataRow + rows.length - 1;
+
+  // Borders (header + data)
+  applyBorderRange(ws, startRow + 1, startRow + 1, 1, 5);
+  if (rows.length) applyBorderRange(ws, firstDataRow, lastDataRow, 1, 5);
+
+  // Blank row after section
+  return (rows.length ? lastDataRow : (firstDataRow - 1)) + 2;
+}
+
 async function downloadDayXlsx() {
   const dateStr = ui.datePicker?.value || isoDateLocal();
 
-  // ✅ Use your UI summary (one row per person per day)
+  // ✅ One row per person per day (includes role)
   const rows = buildDaySummary(dateStr);
 
   if (!rows.length) {
@@ -1620,75 +1671,43 @@ async function downloadDayXlsx() {
   wb.creator = "Face Attendance";
   wb.created = new Date();
 
-  const ws = wb.addWorksheet(`Logs ${dateStr}`);
+  const ws = wb.addWorksheet(`By Role ${dateStr}`.slice(0, 31));
 
+  // Column widths (A..E)
   ws.columns = [
     { header: "Name", key: "name", width: 28 },
+    { header: "Role", key: "role", width: 16 },
     { header: "Time In", key: "time_in", width: 14 },
     { header: "Time Out", key: "time_out", width: 14 },
     { header: "Photo", key: "photo", width: 16 },
   ];
 
-  // Header style
-  ws.getRow(1).font = { bold: true };
-  ws.getRow(1).alignment = { vertical: "middle", horizontal: "left" };
-  ws.getRow(1).height = 18;
+  const { groups, sortedRoles } = groupByRole(rows);
 
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const excelRowNumber = i + 2;
+  let nextRow = 1;
 
-    const photo = r.photo_in || r.photo_out || null;
-
-    ws.addRow({
-      name: r.name || "",
-      time_in: r.time_in || "",
-      time_out: r.time_out || "",
-      photo: "", // image will be drawn here
+  // Write each role as a separated table section (same sheet)
+  for (const role of sortedRoles) {
+    const roleRows = groups.get(role) || [];
+    nextRow = writeRoleSection({
+      wb,
+      ws,
+      startRow: nextRow,
+      roleName: role,
+      rows: roleRows,
     });
-
-    // Make row taller for image
-    const row = ws.getRow(excelRowNumber);
-    row.height = 52;
-    row.alignment = { vertical: "middle" };
-
-    const img = parseImageDataUrl(photo);
-    if (img) {
-      const imageId = wb.addImage({
-        base64: img.base64,
-        extension: img.extension, // png | jpeg
-      });
-
-      // Put image in column D (Photo)
-      // ExcelJS uses 0-based col/row in positioning
-      ws.addImage(imageId, {
-        tl: { col: 3, row: excelRowNumber - 1 }, // D column
-        ext: { width: 72, height: 48 },
-      });
-    }
   }
-
-  // Borders
-  ws.eachRow((row) => {
-    row.eachCell((cell) => {
-      cell.border = {
-        top: { style: "thin" },
-        left: { style: "thin" },
-        bottom: { style: "thin" },
-        right: { style: "thin" },
-      };
-    });
-  });
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
 
-  saveAs(blob, `attendance_${dateStr}.xlsx`);
-  appendStatus(`Excel exported ✅ attendance_${dateStr}.xlsx`);
+  saveAs(blob, `attendance_${dateStr}_role_tables.xlsx`);
+  appendStatus(`Excel exported ✅ attendance_${dateStr}_role_tables.xlsx`);
 }
 
+// ---------------- Clear logs ----------------
 async function clearDay() {
   const ok = await requireAdmin("Clear logs for selected day");
   if (!ok) return;
@@ -1790,7 +1809,7 @@ function bindEvents() {
     ui.datePicker.addEventListener("change", () => {
       renderLogs();
       updateCheckButtonsState();
-      syncAutoCheckIn(); // ✅ auto check-in only if today + camera running
+      syncAutoCheckIn();
     });
   }
 
@@ -1801,7 +1820,6 @@ function bindEvents() {
     });
   }
 
-  // ✅ Manual check-in still available (optional)
   if (ui.btnCheckIn) {
     ui.btnCheckIn.addEventListener("click", () => {
       unlockSpeech();
@@ -1811,7 +1829,6 @@ function bindEvents() {
     });
   }
 
-  // ✅ Check-out must be CLICKED (manual)
   if (ui.btnCheckOut) {
     ui.btnCheckOut.addEventListener("click", () => {
       unlockSpeech();
@@ -1823,7 +1840,6 @@ function bindEvents() {
 
   if (ui.btnDownloadDay) ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
 
-  // ✅ NEW: Excel export
   if (ui.btnDownloadDayXlsx) {
     ui.btnDownloadDayXlsx.addEventListener("click", () => {
       downloadDayXlsx().catch((e) =>
@@ -1869,7 +1885,6 @@ function bindEvents() {
     });
   }
 
-  // ✅ Admin Access / Logout toggle
   if (ui.btnAdminToggle) {
     ui.btnAdminToggle.addEventListener("click", async () => {
       if (isAdminLoggedIn()) {
@@ -1893,15 +1908,12 @@ function bindEvents() {
   }
 
   window.addEventListener("resize", () => requestAnimationFrame(resizeOverlayToVideo));
-  ui.video.addEventListener("loadedmetadata", () =>
+  ui.video?.addEventListener?.("loadedmetadata", () =>
     requestAnimationFrame(resizeOverlayToVideo)
   );
 
-  // Optional: if you switch tabs, pause scanning and resume
   document.addEventListener("visibilitychange", () => {
     if (!PERF.PAUSE_WHEN_HIDDEN) return;
-
-    // auto also pauses via shouldAutoCheckInNow()
     if (!stream) return;
 
     if (document.hidden) {
@@ -1921,7 +1933,6 @@ function bindEvents() {
 
   if (ui.datePicker) ui.datePicker.value = isoDateLocal();
 
-  // clock
   const tickClock = () => {
     const d = now();
     if (ui.tzLabel) {
@@ -1936,7 +1947,7 @@ function bindEvents() {
   setInterval(tickClock, 1000);
 
   bindEvents();
-  applyAdminUiState(); // ✅ show/hide admin panel + button text on load
+  applyAdminUiState();
   renderProfiles();
   renderLogs();
   updateCheckButtonsState();
@@ -1947,13 +1958,9 @@ function bindEvents() {
       "Ready. Start camera. When it detects 1 face, it will show the person's NAME on the box if registered."
     );
     appendStatus("If not registered, the box will say: Not registered.");
-    appendStatus(
-      "AUTO check-in runs every 2 seconds when 1 registered face is visible."
-    );
+    appendStatus("AUTO check-in runs every 2 seconds when 1 registered face is visible.");
     appendStatus("Check-out is MANUAL (must click the button).");
-    appendStatus(
-      "Check In/Out works ONLY on TODAY. You can still browse history by changing date."
-    );
+    appendStatus("Check In/Out works ONLY on TODAY. You can still browse history by changing date.");
 
     appendStatus(
       `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${PERF.LIVE_SCAN_INTERVAL_MS}ms, landmarks=${
