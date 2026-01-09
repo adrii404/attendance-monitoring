@@ -91,11 +91,19 @@
                                     <input id="enrollName" type="text" placeholder="e.g., Juan Dela Cruz"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
         
-                                    <!-- <input id="enrollContact" type="tel" placeholder="Contact Number"
+                                    <input id="enrollContact" type="tel" placeholder="Contact Number"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
         
                                     <input id="enrollPassword" type="password" placeholder="Password"
-                                        class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" /> -->
+                                        class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+
+                                        <select id="enrollRole" class="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-slate-100">
+                                                <option value="">Select role</option>
+                                                <option value="1">ADMIN</option>
+                                                <option value="2">IT</option>
+                                                <option value="3">CSR</option>
+                                                <option value="4">TECHNICAL</option>
+                                        </select>
         
                                     <div class="flex flex-wrap items-center gap-2 pt-1">
                                         <button id="btnEnroll" type="button" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
