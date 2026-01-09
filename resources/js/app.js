@@ -60,6 +60,7 @@ const ui = {
   enrollName: el("enrollName"),
   enrollContact: el("enrollContact"),
   enrollPassword: el("enrollPassword"),
+  enrollRole: el("enrollRole"),
   btnEnroll: el("btnEnroll"),
   profilesList: el("profilesList"),
   enrolledCount: el("enrolledCount"),
@@ -1314,6 +1315,7 @@ async function enroll() {
   const name = (ui.enrollName?.value || "").trim();
   const contact_number = (ui.enrollContact?.value || "").trim();
   const password = (ui.enrollPassword?.value || "").trim();
+  const roleId = Number(ui.enrollRole?.value || 0);
 
   if (!name) {
     appendStatus("Enroll: Please enter a name.");
@@ -1328,6 +1330,12 @@ async function enroll() {
     return;
   }
 
+
+  if (!roleId) {
+  appendStatus("Enroll: Please select a role.");
+  return;
+}
+
   if (!stream) {
     appendStatus("Enroll: Start the camera first.");
     return;
@@ -1336,6 +1344,8 @@ async function enroll() {
     appendStatus("Enroll: Models not ready yet.");
     return;
   }
+
+  
 
   appendStatus("Enroll: Capturing face…");
 
@@ -1379,6 +1389,7 @@ async function enroll() {
       name,
       contact_number,
       password,
+      role_id: roleId,
       descriptor: Array.from(scan.descriptor),
       label: "Enrollment",
     }),

@@ -34,6 +34,9 @@ class EnrollController extends Controller
         ],
 
         'password' => ['required', 'string', 'min:8', 'max:255'],
+            // ✅ NEW: role_id must exist in roles table
+        'role_id' => ['required', 'integer', 'exists:roles,id'],
+
 
         'descriptor' => ['required', 'array', 'size:128'],
         'descriptor.*' => ['numeric'],
@@ -48,6 +51,7 @@ class EnrollController extends Controller
             'contact_number' => $data['contact_number'],
             'email' => $data['email'] ?? null,
             'password' => Hash::make($data['password']),
+             'role_id' => (int) $data['role_id'], // ✅ SAVE role_id
         ]);
 
         $profile = FaceProfile::create([
@@ -68,6 +72,7 @@ class EnrollController extends Controller
             'name' => $user->name,
             'contact_number' => $user->contact_number,
             'email' => $user->email,
+            'role_id' => $user->role_id, // ✅ include in response (optional but helpful)
         ],
         'face_profile_id' => $profile->id,
     ]);
