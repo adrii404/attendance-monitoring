@@ -19,8 +19,17 @@ import "./bootstrap";
  * - CHECK-OUT must be clicked via button (manual)
  */
 
-const MODELS_URL =
-  "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
+// ✅ More stable weights host + matches your <script src="unpkg...face-api.min.js">
+// ✅ Try local first (best), then CDN fallbacks
+const MODEL_BASES = [
+    "/faceapi/weights", // ✅ put weights here: public/faceapi/weights/*
+    "https://unpkg.com/face-api.js@0.22.2/weights",
+    "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights",
+];
+
+// ✅ IMPORTANT: app.js is a Vite module, so global window.faceapi is NOT in scope.
+// We declare a module variable and assign it after face-api is available.
+let faceapi = null;
 
 const STORAGE_PROFILES = "fb_attendance_profiles_v1"; // legacy fallback
 const STORAGE_LOGS = "fb_attendance_logs_v1"; // UI-only quick view (DB is the truth)
@@ -30,112 +39,113 @@ const STORAGE_ADMIN_SESSION = "fb_attendance_admin_session_v1";
 const el = (id) => document.getElementById(id);
 
 function escapeHtml(str) {
-  return String(str ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 const ui = {
-  video: el("video"),
-  overlay: el("overlay"),
-  status: el("status"),
+    video: el("video"),
+    overlay: el("overlay"),
+    status: el("status"),
 
-  btnStart: el("btnStart"),
-  btnStop: el("btnStop"),
-  btnFlip: el("btnFlip"),
+    btnStart: el("btnStart"),
+    btnStop: el("btnStop"),
+    btnFlip: el("btnFlip"),
 
-  threshold: el("threshold"),
-  thresholdVal: el("thresholdVal"),
+    threshold: el("threshold"),
+    thresholdVal: el("thresholdVal"),
 
-  datePicker: el("datePicker"),
-  btnToday: el("btnToday"),
-  tzLabel: el("tzLabel"),
-  nowLabel: el("nowLabel"),
+    datePicker: el("datePicker"),
+    btnToday: el("btnToday"),
+    tzLabel: el("tzLabel"),
+    nowLabel: el("nowLabel"),
 
-  enrollName: el("enrollName"),
-  enrollContact: el("enrollContact"),
-  enrollPassword: el("enrollPassword"),
-  enrollRole: el("enrollRole"),
-  btnEnroll: el("btnEnroll"),
-  profilesList: el("profilesList"),
-  enrolledCount: el("enrolledCount"),
+    enrollName: el("enrollName"),
+    enrollContact: el("enrollContact"),
+    enrollPassword: el("enrollPassword"),
+    enrollRole: el("enrollRole"),
+    btnEnroll: el("btnEnroll"),
+    profilesList: el("profilesList"),
+    enrolledCount: el("enrolledCount"),
 
-  btnCheckIn: el("btnCheckIn"),
-  btnCheckOut: el("btnCheckOut"),
+    btnCheckIn: el("btnCheckIn"),
+    btnCheckOut: el("btnCheckOut"),
 
-  btnDownloadDay: el("btnDownloadDay"),
-  btnDownloadDayJson: el("btnDownloadDayJson"),
-  btnClearDay: el("btnClearDay"),
+    btnDownloadDay: el("btnDownloadDay"),
+    btnDownloadDayXlsx: el("btnDownloadDayXlsx"),
+    btnDownloadDayJson: el("btnDownloadDayJson"),
+    btnClearDay: el("btnClearDay"),
 
-  logsTbody: el("logsTbody"),
-  logsCount: el("logsCount"),
+    logsTbody: el("logsTbody"),
+    logsCount: el("logsCount"),
 
-  btnClearAll: el("btnClearAll"),
-  btnChangePw: el("btnChangePw"),
+    btnClearAll: el("btnClearAll"),
+    btnChangePw: el("btnChangePw"),
 
-  modelStatusText: el("modelStatusText"),
-  statusDot: el("statusDot"),
+    modelStatusText: el("modelStatusText"),
+    statusDot: el("statusDot"),
 
-  btnExportProfiles: el("btnExportProfiles"),
-  importProfiles: el("importProfiles"),
+    btnExportProfiles: el("btnExportProfiles"),
+    importProfiles: el("importProfiles"),
 
-  // ✅ Live detected name label
-  liveDetectedName: el("liveDetectedName"),
+    // ✅ Live detected name label
+    liveDetectedName: el("liveDetectedName"),
 
-  // ✅ Admin toggle + admin panel wrapper
-  btnAdminToggle: el("btnAdminToggle"),
-  adminPanel: el("adminPanel"),
+    // ✅ Admin toggle + admin panel wrapper
+    btnAdminToggle: el("btnAdminToggle"),
+    adminPanel: el("adminPanel"),
 
-  // ✅ Password modal (masked input)
-  pwModal: el("pwModal"),
-  pwModalTitle: el("pwModalTitle"),
-  pwModalDesc: el("pwModalDesc"),
-  pwModalInput: el("pwModalInput"),
-  pwModalCancel: el("pwModalCancel"),
-  pwModalOk: el("pwModalOk"),
+    // ✅ Password modal (masked input)
+    pwModal: el("pwModal"),
+    pwModalTitle: el("pwModalTitle"),
+    pwModalDesc: el("pwModalDesc"),
+    pwModalInput: el("pwModalInput"),
+    pwModalCancel: el("pwModalCancel"),
+    pwModalOk: el("pwModalOk"),
 
-  // toastWrap: el("toastWrap"),
-  // toastPhoto: el("toastPhoto"),
-  // toastName: el("toastName"),
-  // toastDate: el("toastDate"),
-  // toastTime: el("toastTime"),
-  // toastAction: el("toastAction"),
-  toastList: el("toastList"),
+    // toastWrap: el("toastWrap"),
+    // toastPhoto: el("toastPhoto"),
+    // toastName: el("toastName"),
+    // toastDate: el("toastDate"),
+    // toastTime: el("toastTime"),
+    // toastAction: el("toastAction"),
+    toastList: el("toastList"),
 };
 
 // ---------------- Lite/Performance knobs ----------------
 const PERF = {
-  // Live scanning: lower = faster/less accurate, higher = slower/more accurate
-  LIVE_INPUT_SIZE: 160,
-  LIVE_SCORE_THRESHOLD: 0.5,
-  LIVE_SCAN_INTERVAL_MS: 650,
+    // Live scanning: lower = faster/less accurate, higher = slower/more accurate
+    LIVE_INPUT_SIZE: 160,
+    LIVE_SCORE_THRESHOLD: 0.5,
+    LIVE_SCAN_INTERVAL_MS: 650,
 
-  // Action scans (button clicks): more accurate than live, still not too heavy
-  ACTION_INPUT_SIZE: 224,
-  ACTION_SCORE_THRESHOLD: 0.5,
+    // Action scans (button clicks): more accurate than live, still not too heavy
+    ACTION_INPUT_SIZE: 224,
+    ACTION_SCORE_THRESHOLD: 0.5,
 
-  // ✅ Auto check-in: tries every 2 seconds (only when 1 registered face is seen)
-  AUTO_CHECKIN_INTERVAL_MS: 2000,
+    // ✅ Auto check-in: tries every 2 seconds (only when 1 registered face is seen)
+    AUTO_CHECKIN_INTERVAL_MS: 2000,
 
-  // ✅ Prevent spamming same person while they stand still
-  AUTO_CHECKIN_SAME_USER_COOLDOWN_MS: 8000,
+    // ✅ Prevent spamming same person while they stand still
+    AUTO_CHECKIN_SAME_USER_COOLDOWN_MS: 8000,
 
-  // Major CPU saver: drawing landmarks is expensive
-  DRAW_LANDMARKS: false,
+    // Major CPU saver: drawing landmarks is expensive
+    DRAW_LANDMARKS: false,
 
-  // Lower camera decode cost
-  CAMERA_IDEAL_WIDTH: 640,
-  CAMERA_IDEAL_HEIGHT: 480,
+    // Lower camera decode cost
+    CAMERA_IDEAL_WIDTH: 640,
+    CAMERA_IDEAL_HEIGHT: 480,
 
-  // Stored photos for logs (UI + backend)
-  PHOTO_LOG_MAX_WIDTH: 420,
-  PHOTO_LOG_QUALITY: 0.65,
+    // Stored photos for logs (UI + backend)
+    PHOTO_LOG_MAX_WIDTH: 420,
+    PHOTO_LOG_QUALITY: 0.65,
 
-  // Pause scanning if tab hidden (saves CPU)
-  PAUSE_WHEN_HIDDEN: true,
+    // Pause scanning if tab hidden (saves CPU)
+    PAUSE_WHEN_HIDDEN: true,
 };
 
 // ---------------- Voice (Text-to-Speech) ----------------
@@ -144,38 +154,38 @@ let voiceEnabled = true;
 let speechUnlocked = false;
 
 function unlockSpeech() {
-  if (speechUnlocked) return;
-  if (!("speechSynthesis" in window)) return;
+    if (speechUnlocked) return;
+    if (!("speechSynthesis" in window)) return;
 
-  const u = new SpeechSynthesisUtterance(" ");
-  u.volume = 0;
-  window.speechSynthesis.speak(u);
-  window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;
+    window.speechSynthesis.speak(u);
+    window.speechSynthesis.cancel();
 
-  speechUnlocked = true;
+    speechUnlocked = true;
 }
 
 function speak(text) {
-  if (!voiceEnabled) return;
-  if (!("speechSynthesis" in window)) return;
+    if (!voiceEnabled) return;
+    if (!("speechSynthesis" in window)) return;
 
-  // avoid queued/overlapping speech
-  window.speechSynthesis.cancel();
+    // avoid queued/overlapping speech
+    window.speechSynthesis.cancel();
 
-  const u = new SpeechSynthesisUtterance(text);
-  u.rate = 1;
-  u.pitch = 1;
-  u.volume = 1;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1;
+    u.pitch = 1;
+    u.volume = 1;
 
-  const voices = window.speechSynthesis.getVoices?.() || [];
-  const en = voices.find((v) => /en/i.test(v.lang)) || voices[0];
-  if (en) u.voice = en;
+    const voices = window.speechSynthesis.getVoices?.() || [];
+    const en = voices.find((v) => /en/i.test(v.lang)) || voices[0];
+    if (en) u.voice = en;
 
-  window.speechSynthesis.speak(u);
+    window.speechSynthesis.speak(u);
 }
 
 window.speechSynthesis?.addEventListener?.("voiceschanged", () => {
-  window.speechSynthesis.getVoices();
+    window.speechSynthesis.getVoices();
 });
 
 // ---------------- Server matching (DB-driven) ----------------
@@ -185,10 +195,10 @@ let lastServerMatchResult = { matched: false, user: null, distance: null };
 
 // ✅ Live single-face matched user (used by AUTO CHECK-IN)
 let liveSingle = {
-  matched: false,
-  userId: null,
-  name: null,
-  updatedAt: 0,
+    matched: false,
+    userId: null,
+    name: null,
+    updatedAt: 0,
 };
 
 // ✅ Auto check-in control
@@ -205,27 +215,27 @@ let scanSuccessFlashUntil = 0;
 let toastTimer = null;
 
 function resetScanProgress() {
-  scanProgressUserId = null;
-  scanProgressStartAt = 0;
-  scanProgressPct = 0;
+    scanProgressUserId = null;
+    scanProgressStartAt = 0;
+    scanProgressPct = 0;
 }
 
 function showRightToast({ name, date, time, action, photoDataUrl }) {
-  if (!ui.toastList) return;
+    if (!ui.toastList) return;
 
-  const actionClass =
-    action === "Time-In"
-      ? "text-emerald-300"
-      : action === "Time-Out"
-      ? "text-amber-300"
-      : "text-slate-200";
+    const actionClass =
+        action === "Time-In"
+            ? "text-emerald-300"
+            : action === "Time-Out"
+            ? "text-amber-300"
+            : "text-slate-200";
 
-  const wrap = document.createElement("div");
-  wrap.className =
-    "w-full rounded-3xl border border-white/10 bg-white/5 p-4 shadow " +
-    "flex flex-row gap-4 opacity-0 transition-opacity duration-500";
+    const wrap = document.createElement("div");
+    wrap.className =
+        "w-full rounded-3xl border border-white/10 bg-white/5 p-4 shadow " +
+        "flex flex-row gap-4 opacity-0 transition-opacity duration-500";
 
-  wrap.innerHTML = `
+    wrap.innerHTML = `
     <img
       src="${photoDataUrl || ""}"
       alt="Captured"
@@ -238,94 +248,100 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
       <p><span class="font-bold">Time: </span>${escapeHtml(time || "—")}</p>
       <p>
         <span class="font-bold">Action:</span>
-        <span class="${actionClass} font-semibold">${escapeHtml(action || "—")}</span>
+        <span class="${actionClass} font-semibold">${escapeHtml(
+        action || "—"
+    )}</span>
       </p>
     </div>
   `;
 
-  // ✅ newest on top
-  ui.toastList.prepend(wrap);
+    // ✅ newest on top
+    ui.toastList.prepend(wrap);
 
-  // fade in (next tick)
-  requestAnimationFrame(() => {
-    wrap.classList.remove("opacity-0");
-    wrap.classList.add("opacity-100");
-  });
+    // fade in (next tick)
+    requestAnimationFrame(() => {
+        wrap.classList.remove("opacity-0");
+        wrap.classList.add("opacity-100");
+    });
 
-  // fade out after 3s, then remove from DOM
-  setTimeout(() => {
-    wrap.classList.remove("opacity-100");
-    wrap.classList.add("opacity-0");
-
+    // fade out after 3s, then remove from DOM
     setTimeout(() => {
-      wrap.remove();
-    }, 520);
-  }, 3000);
+        wrap.classList.remove("opacity-100");
+        wrap.classList.add("opacity-0");
+
+        setTimeout(() => {
+            wrap.remove();
+        }, 520);
+    }, 3000);
 }
 
 // Throttle server matching so live scanning doesn't spam your API
 const SERVER_MATCH_MIN_INTERVAL_MS = 800;
 
 async function safeFetchJson(url, options = {}) {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        ...(options.headers || {}),
-      },
-      ...options,
-    });
-
-    let data = null;
     try {
-      data = await res.json();
-    } catch (_) {
-      // ignore non-json
-    }
+        const res = await fetch(url, {
+            headers: {
+                Accept: "application/json",
+                ...(options.headers || {}),
+            },
+            ...options,
+        });
 
-    return { ok: res.ok, status: res.status, data };
-  } catch (e) {
-    return { ok: false, status: 0, data: null, error: e };
-  }
+        let data = null;
+        try {
+            data = await res.json();
+        } catch (_) {
+            // ignore non-json
+        }
+
+        return { ok: res.ok, status: res.status, data };
+    } catch (e) {
+        return { ok: false, status: 0, data: null, error: e };
+    }
 }
 
 async function serverMatchDescriptor(descriptor, threshold) {
-  const nowMs = Date.now();
+    const nowMs = Date.now();
 
-  // If a request is already in-flight, reuse the last result
-  if (serverMatchInFlight) return lastServerMatchResult;
+    // If a request is already in-flight, reuse the last result
+    if (serverMatchInFlight) return lastServerMatchResult;
 
-  // Throttle calls
-  if (nowMs - lastServerMatchAt < SERVER_MATCH_MIN_INTERVAL_MS)
-    return lastServerMatchResult;
+    // Throttle calls
+    if (nowMs - lastServerMatchAt < SERVER_MATCH_MIN_INTERVAL_MS)
+        return lastServerMatchResult;
 
-  serverMatchInFlight = true;
-  lastServerMatchAt = nowMs;
+    serverMatchInFlight = true;
+    lastServerMatchAt = nowMs;
 
-  try {
-    const r = await safeFetchJson("/api/face/match", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        descriptor: Array.from(descriptor),
-        threshold: Number(threshold),
-      }),
-    });
+    try {
+        const r = await safeFetchJson("/api/face/match", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                descriptor: Array.from(descriptor),
+                threshold: Number(threshold),
+            }),
+        });
 
-    if (!r.ok || !r.data) {
-      lastServerMatchResult = { matched: false, user: null, distance: null };
-      return lastServerMatchResult;
+        if (!r.ok || !r.data) {
+            lastServerMatchResult = {
+                matched: false,
+                user: null,
+                distance: null,
+            };
+            return lastServerMatchResult;
+        }
+
+        lastServerMatchResult = {
+            matched: !!r.data.matched,
+            user: r.data.user || null,
+            distance: r.data.distance ?? null,
+        };
+        return lastServerMatchResult;
+    } finally {
+        serverMatchInFlight = false;
     }
-
-    lastServerMatchResult = {
-      matched: !!r.data.matched,
-      user: r.data.user || null,
-      distance: r.data.distance ?? null,
-    };
-    return lastServerMatchResult;
-  } finally {
-    serverMatchInFlight = false;
-  }
 }
 
 let stream = null;
@@ -343,1529 +359,1813 @@ let attendanceInProgress = false;
 
 // ---------------- Utilities ----------------
 function now() {
-  return new Date();
+    return new Date();
 }
 
 function isoDateLocal(d = now()) {
-  const yy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
 }
 
 function timeLocal(d = now()) {
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
 }
 
 function setStatus(msg) {
-  if (ui.status) ui.status.textContent = msg || "";
+    if (ui.status) ui.status.textContent = msg || "";
 }
 
 function appendStatus(msg) {
-  if (!ui.status) return;
-  const line = document.createElement("div");
-  line.className = "text-[11px] text-slate-300";
-  line.textContent = `[${timeLocal()}] ${msg}`;
-  ui.status.appendChild(line);
-  ui.status.scrollTop = ui.status.scrollHeight;
+    if (!ui.status) return;
+    const line = document.createElement("div");
+    line.className = "text-[11px] text-slate-300";
+    line.textContent = `[${timeLocal()}] ${msg}`;
+    ui.status.appendChild(line);
+    ui.status.scrollTop = ui.status.scrollHeight;
 }
 
 function setModelPill(state, label) {
-  if (!ui.modelStatusText || !ui.statusDot) return;
+    if (!ui.modelStatusText || !ui.statusDot) return;
 
-  ui.modelStatusText.textContent = label || "";
+    ui.modelStatusText.textContent = label || "";
 
-  // state: "loading" | "ready" | "error"
-  ui.statusDot.className =
-    "inline-block h-2 w-2 rounded-full " +
-    (state === "ready"
-      ? "bg-emerald-400"
-      : state === "error"
-      ? "bg-rose-400"
-      : "bg-amber-300");
+    // state: "loading" | "ready" | "error"
+    ui.statusDot.className =
+        "inline-block h-2 w-2 rounded-full " +
+        (state === "ready"
+            ? "bg-emerald-400"
+            : state === "error"
+            ? "bg-rose-400"
+            : "bg-amber-300");
 }
 
 function updateThresholdUI() {
-  if (!ui.thresholdVal || !ui.threshold) return;
-  ui.thresholdVal.textContent = Number(ui.threshold.value).toFixed(2);
+    if (!ui.thresholdVal || !ui.threshold) return;
+    ui.thresholdVal.textContent = Number(ui.threshold.value).toFixed(2);
 }
 
 function setThresholdValue(v) {
-  if (!ui.threshold) return;
-  ui.threshold.value = String(v);
-  updateThresholdUI();
+    if (!ui.threshold) return;
+    ui.threshold.value = String(v);
+    updateThresholdUI();
 }
 
 function safeJsonParse(text, fallback) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return fallback;
-  }
+    try {
+        return JSON.parse(text);
+    } catch {
+        return fallback;
+    }
 }
 
 function safeSetLocalStorage(key, value) {
-  try {
-    localStorage.setItem(key, value);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e };
-  }
+    try {
+        localStorage.setItem(key, value);
+        return { ok: true };
+    } catch (e) {
+        return { ok: false, error: e };
+    }
 }
 
 // ✅ today-only helper
 function isSelectedDateToday() {
-  const selected = ui.datePicker?.value || isoDateLocal();
-  return selected === isoDateLocal();
+    const selected = ui.datePicker?.value || isoDateLocal();
+    return selected === isoDateLocal();
 }
 
 function updateCheckButtonsState() {
-  if (!ui.btnCheckIn || !ui.btnCheckOut) return;
+    if (!ui.btnCheckIn || !ui.btnCheckOut) return;
 
-  const ok = isSelectedDateToday();
+    const ok = isSelectedDateToday();
 
-  ui.btnCheckIn.disabled = !ok;
-  ui.btnCheckOut.disabled = !ok;
+    ui.btnCheckIn.disabled = !ok;
+    ui.btnCheckOut.disabled = !ok;
 
-  const baseOn = "rounded-2xl px-3 py-3 text-sm font-semibold text-slate-950";
-  const baseOff =
-    "rounded-2xl px-3 py-3 text-sm font-semibold text-slate-400 cursor-not-allowed opacity-60";
+    const baseOn = "rounded-2xl px-3 py-3 text-sm font-semibold text-slate-950";
+    const baseOff =
+        "rounded-2xl px-3 py-3 text-sm font-semibold text-slate-400 cursor-not-allowed opacity-60";
 
-  ui.btnCheckIn.className = ok
-    ? `${baseOn} bg-sky-400/90 hover:bg-sky-300`
-    : `${baseOff} bg-white/10`;
+    ui.btnCheckIn.className = ok
+        ? `${baseOn} bg-sky-400/90 hover:bg-sky-300`
+        : `${baseOff} bg-white/10`;
 
-  ui.btnCheckOut.className = ok
-    ? `${baseOn} bg-amber-400/90 hover:bg-amber-300`
-    : `${baseOff} bg-white/10`;
+    ui.btnCheckOut.className = ok
+        ? `${baseOn} bg-amber-400/90 hover:bg-amber-300`
+        : `${baseOff} bg-white/10`;
 }
 
 // ---------------- Masked password modal (replaces prompt) ----------------
 function promptPasswordModal({
-  title = "Admin password",
-  desc = "Enter password",
-  placeholder = "Password",
+    title = "Admin password",
+    desc = "Enter password",
+    placeholder = "Password",
 } = {}) {
-  return new Promise((resolve) => {
-    // Fallback if modal not in DOM (won't be masked)
-    if (
-      !ui.pwModal ||
-      !ui.pwModalInput ||
-      !ui.pwModalOk ||
-      !ui.pwModalCancel
-    ) {
-      const pw = prompt(desc);
-      resolve(pw === null ? null : String(pw));
-      return;
-    }
+    return new Promise((resolve) => {
+        // Fallback if modal not in DOM (won't be masked)
+        if (
+            !ui.pwModal ||
+            !ui.pwModalInput ||
+            !ui.pwModalOk ||
+            !ui.pwModalCancel
+        ) {
+            const pw = prompt(desc);
+            resolve(pw === null ? null : String(pw));
+            return;
+        }
 
-    if (ui.pwModalTitle) ui.pwModalTitle.textContent = title;
-    if (ui.pwModalDesc) ui.pwModalDesc.textContent = desc;
+        if (ui.pwModalTitle) ui.pwModalTitle.textContent = title;
+        if (ui.pwModalDesc) ui.pwModalDesc.textContent = desc;
 
-    ui.pwModalInput.type = "password";
-    ui.pwModalInput.placeholder = placeholder;
-    ui.pwModalInput.value = "";
+        ui.pwModalInput.type = "password";
+        ui.pwModalInput.placeholder = placeholder;
+        ui.pwModalInput.value = "";
 
-    ui.pwModal.classList.remove("hidden");
-    ui.pwModal.classList.add("flex");
+        ui.pwModal.classList.remove("hidden");
+        ui.pwModal.classList.add("flex");
 
-    // Focus next tick
-    setTimeout(() => ui.pwModalInput.focus(), 0);
+        // Focus next tick
+        setTimeout(() => ui.pwModalInput.focus(), 0);
 
-    const cleanup = () => {
-      ui.pwModal.classList.add("hidden");
-      ui.pwModal.classList.remove("flex");
-      ui.pwModalOk.removeEventListener("click", onOk);
-      ui.pwModalCancel.removeEventListener("click", onCancel);
-      ui.pwModalInput.removeEventListener("keydown", onKey);
-    };
+        const cleanup = () => {
+            ui.pwModal.classList.add("hidden");
+            ui.pwModal.classList.remove("flex");
+            ui.pwModalOk.removeEventListener("click", onOk);
+            ui.pwModalCancel.removeEventListener("click", onCancel);
+            ui.pwModalInput.removeEventListener("keydown", onKey);
+        };
 
-    const onOk = () => {
-      const val = String(ui.pwModalInput.value || "");
-      cleanup();
-      resolve(val);
-    };
+        const onOk = () => {
+            const val = String(ui.pwModalInput.value || "");
+            cleanup();
+            resolve(val);
+        };
 
-    const onCancel = () => {
-      cleanup();
-      resolve(null);
-    };
+        const onCancel = () => {
+            cleanup();
+            resolve(null);
+        };
 
-    const onKey = (e) => {
-      if (e.key === "Enter") onOk();
-      if (e.key === "Escape") onCancel();
-    };
+        const onKey = (e) => {
+            if (e.key === "Enter") onOk();
+            if (e.key === "Escape") onCancel();
+        };
 
-    ui.pwModalOk.addEventListener("click", onOk);
-    ui.pwModalCancel.addEventListener("click", onCancel);
-    ui.pwModalInput.addEventListener("keydown", onKey);
-  });
+        ui.pwModalOk.addEventListener("click", onOk);
+        ui.pwModalCancel.addEventListener("click", onCancel);
+        ui.pwModalInput.addEventListener("keydown", onKey);
+    });
 }
 
 // ---------------- Password / Admin gate ----------------
 function getAdminHash() {
-  return localStorage.getItem(STORAGE_ADMIN_HASH) || "";
+    return localStorage.getItem(STORAGE_ADMIN_HASH) || "";
 }
 
 function bufToHex(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let out = "";
-  for (const b of bytes) out += b.toString(16).padStart(2, "0");
-  return out;
+    const bytes = new Uint8Array(buffer);
+    let out = "";
+    for (const b of bytes) out += b.toString(16).padStart(2, "0");
+    return out;
 }
 
 async function sha256Hex(text) {
-  const enc = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", enc);
-  return bufToHex(digest);
+    const enc = new TextEncoder().encode(text);
+    const digest = await crypto.subtle.digest("SHA-256", enc);
+    return bufToHex(digest);
 }
 
 async function setOrChangePasswordFlow() {
-  const p1 = await promptPasswordModal({
-    title: "Set/Change admin password",
-    desc: "Enter new password (min 4 chars):",
-    placeholder: "New password",
-  });
-  if (p1 === null) return false;
+    const p1 = await promptPasswordModal({
+        title: "Set/Change admin password",
+        desc: "Enter new password (min 4 chars):",
+        placeholder: "New password",
+    });
+    if (p1 === null) return false;
 
-  if (String(p1).length < 4) {
-    alert("Password too short (min 4).");
-    return false;
-  }
+    if (String(p1).length < 4) {
+        alert("Password too short (min 4).");
+        return false;
+    }
 
-  const p2 = await promptPasswordModal({
-    title: "Confirm password",
-    desc: "Re-enter the new password:",
-    placeholder: "Confirm password",
-  });
-  if (p2 === null) return false;
+    const p2 = await promptPasswordModal({
+        title: "Confirm password",
+        desc: "Re-enter the new password:",
+        placeholder: "Confirm password",
+    });
+    if (p2 === null) return false;
 
-  if (p1 !== p2) {
-    alert("Passwords do not match.");
-    return false;
-  }
+    if (p1 !== p2) {
+        alert("Passwords do not match.");
+        return false;
+    }
 
-  const hash = await sha256Hex(String(p1));
-  const r = safeSetLocalStorage(STORAGE_ADMIN_HASH, hash);
-  if (!r.ok) {
-    alert("Failed to save password (storage error).");
-    return false;
-  }
+    const hash = await sha256Hex(String(p1));
+    const r = safeSetLocalStorage(STORAGE_ADMIN_HASH, hash);
+    if (!r.ok) {
+        alert("Failed to save password (storage error).");
+        return false;
+    }
 
-  appendStatus("Admin password set/updated ✅");
-  return true;
+    appendStatus("Admin password set/updated ✅");
+    return true;
 }
 
 async function requireAdmin(actionLabel = "this action") {
-  let hash = getAdminHash();
-  if (!hash) {
-    const ok = await setOrChangePasswordFlow();
-    if (!ok) return false;
-    hash = getAdminHash();
-    if (!hash) return false;
-  }
+    let hash = getAdminHash();
+    if (!hash) {
+        const ok = await setOrChangePasswordFlow();
+        if (!ok) return false;
+        hash = getAdminHash();
+        if (!hash) return false;
+    }
 
-  const pw = await promptPasswordModal({
-    title: "Admin confirmation",
-    desc: `Enter admin password to confirm:\nAction: ${actionLabel}`,
-    placeholder: "Admin password",
-  });
+    const pw = await promptPasswordModal({
+        title: "Admin confirmation",
+        desc: `Enter admin password to confirm:\nAction: ${actionLabel}`,
+        placeholder: "Admin password",
+    });
 
-  if (pw === null) return false;
+    if (pw === null) return false;
 
-  const inputHash = await sha256Hex(String(pw));
-  if (inputHash !== hash) {
-    alert("Wrong password.");
-    return false;
-  }
-  return true;
+    const inputHash = await sha256Hex(String(pw));
+    if (inputHash !== hash) {
+        alert("Wrong password.");
+        return false;
+    }
+    return true;
 }
 
 // ---------------- Admin session toggle (show/hide panel) ----------------
 function isAdminLoggedIn() {
-  return localStorage.getItem(STORAGE_ADMIN_SESSION) === "1";
+    return localStorage.getItem(STORAGE_ADMIN_SESSION) === "1";
 }
 
 function setAdminLoggedIn(v) {
-  localStorage.setItem(STORAGE_ADMIN_SESSION, v ? "1" : "0");
+    localStorage.setItem(STORAGE_ADMIN_SESSION, v ? "1" : "0");
 }
 
 function applyAdminUiState() {
-  const on = isAdminLoggedIn();
+    const on = isAdminLoggedIn();
 
-  if (ui.adminPanel) ui.adminPanel.classList.toggle("hidden", !on);
-  if (ui.btnAdminToggle)
-    ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
+    if (ui.adminPanel) ui.adminPanel.classList.toggle("hidden", !on);
+    if (ui.btnAdminToggle)
+        ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
 
-  // threshold can be interacted with immediately while admin is logged in
-  adminUnlockedThreshold = on;
+    // threshold can be interacted with immediately while admin is logged in
+    adminUnlockedThreshold = on;
 
-  // When logging out, snap slider back to last known value (optional safety)
-  if (!on && lastThresholdValue !== null) {
-    setThresholdValue(lastThresholdValue);
-  }
+    // When logging out, snap slider back to last known value (optional safety)
+    if (!on && lastThresholdValue !== null) {
+        setThresholdValue(lastThresholdValue);
+    }
 }
 
 // ---------------- Storage (legacy fallback for profiles) ----------------
 function getProfiles() {
-  const raw = localStorage.getItem(STORAGE_PROFILES);
-  const profiles = safeJsonParse(raw, []);
-  return Array.isArray(profiles)
-    ? profiles.filter(
-        (p) =>
-          p &&
-          p.name &&
-          Array.isArray(p.descriptor) &&
-          p.descriptor.length === 128
-      )
-    : [];
+    const raw = localStorage.getItem(STORAGE_PROFILES);
+    const profiles = safeJsonParse(raw, []);
+    return Array.isArray(profiles)
+        ? profiles.filter(
+              (p) =>
+                  p &&
+                  p.name &&
+                  Array.isArray(p.descriptor) &&
+                  p.descriptor.length === 128
+          )
+        : [];
 }
 
 function saveProfiles(profiles) {
-  const r = safeSetLocalStorage(STORAGE_PROFILES, JSON.stringify(profiles));
-  if (!r.ok)
-    appendStatus("Storage warning: Failed to save profiles (quota/storage error).");
+    const r = safeSetLocalStorage(STORAGE_PROFILES, JSON.stringify(profiles));
+    if (!r.ok)
+        appendStatus(
+            "Storage warning: Failed to save profiles (quota/storage error)."
+        );
 }
 
 // ---------------- Logs (UI-only quick view; DB is the truth) ----------------
 function getLogs() {
-  const raw = localStorage.getItem(STORAGE_LOGS);
-  const logs = safeJsonParse(raw, {});
-  return logs && typeof logs === "object" ? logs : {};
+    const raw = localStorage.getItem(STORAGE_LOGS);
+    const logs = safeJsonParse(raw, {});
+    return logs && typeof logs === "object" ? logs : {};
 }
 
 function saveLogs(logs) {
-  const r = safeSetLocalStorage(STORAGE_LOGS, JSON.stringify(logs));
-  if (!r.ok)
-    appendStatus("Storage warning: Failed to save logs (quota/storage error).");
+    const r = safeSetLocalStorage(STORAGE_LOGS, JSON.stringify(logs));
+    if (!r.ok)
+        appendStatus(
+            "Storage warning: Failed to save logs (quota/storage error)."
+        );
 }
 
 function getLogsForDate(dateStr) {
-  const logs = getLogs();
-  const arr = logs[dateStr];
-  return Array.isArray(arr) ? arr : [];
-}
-
-function addLog(dateStr, record) {
-  const logs = getLogs();
-  if (!Array.isArray(logs[dateStr])) logs[dateStr] = [];
-  logs[dateStr].push(record);
-  saveLogs(logs);
+    const logs = getLogs();
+    const arr = logs[dateStr];
+    return Array.isArray(arr) ? arr : [];
 }
 
 // ✅ one row per person per day summary
 function buildDaySummary(dateStr) {
-  const logs = getLogsForDate(dateStr);
-  const map = new Map();
+    const logs = getLogsForDate(dateStr);
+    const map = new Map();
 
-  for (const r of logs) {
-    if (!r || !r.name) continue;
+    for (const r of logs) {
+        if (!r || !r.name) continue;
 
-    if (!map.has(r.name)) {
-      map.set(r.name, {
-        name: r.name,
-        time_in: null,
-        time_out: null,
-        photo_in: null,
-        photo_out: null,
-      });
+        if (!map.has(r.name)) {
+            map.set(r.name, {
+                name: r.name,
+                time_in: null,
+                time_out: null,
+                photo_in: null,
+                photo_out: null,
+            });
+        }
+
+        const item = map.get(r.name);
+
+        if (r.type === "check-in") {
+            if (!item.time_in || (r.time && r.time < item.time_in)) {
+                item.time_in = r.time || item.time_in;
+                item.photo_in = r.photo_data_url || item.photo_in;
+            }
+        } else if (r.type === "check-out") {
+            if (!item.time_out || (r.time && r.time > item.time_out)) {
+                item.time_out = r.time || item.time_out;
+                item.photo_out = r.photo_data_url || item.photo_out;
+            }
+        }
     }
 
-    const item = map.get(r.name);
+    const rows = Array.from(map.values());
+    rows.sort((a, b) => {
+        const ai = a.time_in || "";
+        const bi = b.time_in || "";
+        if (ai < bi) return -1;
+        if (ai > bi) return 1;
+        return a.name.localeCompare(b.name);
+    });
 
-    if (r.type === "check-in") {
-      if (!item.time_in || (r.time && r.time < item.time_in)) {
-        item.time_in = r.time || item.time_in;
-        item.photo_in = r.photo_data_url || item.photo_in;
-      }
-    } else if (r.type === "check-out") {
-      if (!item.time_out || (r.time && r.time > item.time_out)) {
-        item.time_out = r.time || item.time_out;
-        item.photo_out = r.photo_data_url || item.photo_out;
-      }
+    return rows;
+}
+
+// ✅ Wait for face-api.js to be available on window (because app.js is a Vite module)
+async function waitForFaceApi(timeoutMs = 10000) {
+    const start = Date.now();
+    while (!window.faceapi) {
+        if (Date.now() - start > timeoutMs) return false;
+        await new Promise((r) => setTimeout(r, 50));
     }
-  }
+    return true;
+}
 
-  const rows = Array.from(map.values());
-  rows.sort((a, b) => {
-    const ai = a.time_in || "";
-    const bi = b.time_in || "";
-    if (ai < bi) return -1;
-    if (ai > bi) return 1;
-    return a.name.localeCompare(b.name);
-  });
+function joinBase(base, file) {
+    const b = String(base || "").replace(/\/+$/, "");
+    return `${b}/${file}`;
+}
 
-  return rows;
+async function testModelBase(base) {
+    // One small file that must exist for tinyFaceDetector
+    const testFile = "tiny_face_detector_model-weights_manifest.json";
+    const url = joinBase(base, testFile);
+
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok)
+        throw new Error(
+            `Model test failed: ${res.status} ${res.statusText} @ ${url}`
+        );
+
+    // ensure it's valid JSON
+    await res.json();
+    return base;
+}
+
+async function pickWorkingModelBase() {
+    let lastErr = null;
+
+    for (const base of MODEL_BASES) {
+        try {
+            appendStatus(`Testing model base: ${base}`);
+            const okBase = await testModelBase(base);
+            appendStatus(`✅ Using model base: ${okBase}`);
+            return okBase;
+        } catch (e) {
+            lastErr = e;
+            appendStatus(`❌ Model base failed: ${base} — ${e?.message || e}`);
+        }
+    }
+
+    throw lastErr || new Error("No working model base found.");
 }
 
 // ---------------- Face API setup ----------------
 async function loadModels() {
-  setModelPill("loading", "Loading models…");
-  appendStatus("Loading face-api models… (first load can take a while)");
+    if (!faceapi)
+        throw new Error("face-api.js not loaded (window.faceapi missing)");
 
-  await faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_URL);
-  await faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_URL);
-  await faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_URL);
+    setModelPill("loading", "Loading models…");
+    appendStatus("Loading face-api models…");
 
-  modelsReady = true;
-  setModelPill("ready", "Models ready ✅");
-  appendStatus("Models loaded ✅");
+    const base = await pickWorkingModelBase();
+
+    try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri(base);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(base);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(base);
+    } catch (e) {
+        // Add extra context
+        throw new Error(
+            `Model download/load failed from "${base}": ${e?.message || e}`
+        );
+    }
+
+    modelsReady = true;
+    setModelPill("ready", "Models ready ✅");
+    appendStatus("Models loaded ✅");
 }
 
 function resizeOverlayToVideo() {
-  if (!ui.overlay || !ui.video) return;
+    if (!ui.overlay || !ui.video) return;
 
-  const rect = ui.video.getBoundingClientRect();
-  const w = Math.max(1, Math.round(rect.width));
-  const h = Math.max(1, Math.round(rect.height));
+    const rect = ui.video.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width));
+    const h = Math.max(1, Math.round(rect.height));
 
-  // Canvas internal resolution matches displayed pixels
-  ui.overlay.width = w;
-  ui.overlay.height = h;
+    // Canvas internal resolution matches displayed pixels
+    ui.overlay.width = w;
+    ui.overlay.height = h;
 
-  // Make sure canvas element visually matches too
-  ui.overlay.style.width = w + "px";
-  ui.overlay.style.height = h + "px";
+    // Make sure canvas element visually matches too
+    ui.overlay.style.width = w + "px";
+    ui.overlay.style.height = h + "px";
 }
 
 function clearOverlay() {
-  if (!ui.overlay) return;
-  const ctx = ui.overlay.getContext("2d");
-  ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
+    if (!ui.overlay) return;
+    const ctx = ui.overlay.getContext("2d");
+    ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
 }
 
 function drawResultsWithLabels(results, labels, opts = {}) {
-  const ctx = ui.overlay.getContext("2d");
-  ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
+    const ctx = ui.overlay.getContext("2d");
+    ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
 
-  const rect = ui.video.getBoundingClientRect();
-  const displaySize = { width: rect.width, height: rect.height };
+    const rect = ui.video.getBoundingClientRect();
+    const displaySize = { width: rect.width, height: rect.height };
 
-  faceapi.matchDimensions(ui.overlay, displaySize);
-  const resized = faceapi.resizeResults(results, displaySize);
+    faceapi.matchDimensions(ui.overlay, displaySize);
+    const resized = faceapi.resizeResults(results, displaySize);
 
-  const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)"; // default blue
+    const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)"; // default blue
 
-  for (let i = 0; i < resized.length; i++) {
-    const box = resized[i].detection.box;
+    for (let i = 0; i < resized.length; i++) {
+        const box = resized[i].detection.box;
 
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = stroke;
-    ctx.strokeRect(box.x, box.y, box.width, box.height);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = stroke;
+        ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-    const label = labels?.[i] || "";
-    if (label) {
-      const pad = 6;
-      ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI";
-      const textW = ctx.measureText(label).width;
-      const rectW = Math.max(60, textW + pad * 2);
-      const rectH = 18;
+        const label = labels?.[i] || "";
+        if (label) {
+            const pad = 6;
+            ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI";
+            const textW = ctx.measureText(label).width;
+            const rectW = Math.max(60, textW + pad * 2);
+            const rectH = 18;
 
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.fillRect(box.x, Math.max(0, box.y - rectH), rectW, rectH);
+            ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+            ctx.fillRect(box.x, Math.max(0, box.y - rectH), rectW, rectH);
 
-      ctx.fillStyle = "rgba(226, 232, 240, 0.95)";
-      ctx.fillText(label, box.x + pad, Math.max(12, box.y - 5));
+            ctx.fillStyle = "rgba(226, 232, 240, 0.95)";
+            ctx.fillText(label, box.x + pad, Math.max(12, box.y - 5));
+        }
     }
-  }
 }
 
-
 async function getSingleDescriptorStrict() {
-  if (!ui.video) return { descriptor: null, reason: "none", count: 0 };
+    if (!ui.video) return { descriptor: null, reason: "none", count: 0 };
 
-  const options = new faceapi.TinyFaceDetectorOptions({
-    inputSize: PERF.ACTION_INPUT_SIZE,
-    scoreThreshold: PERF.ACTION_SCORE_THRESHOLD,
-  });
+    const options = new faceapi.TinyFaceDetectorOptions({
+        inputSize: PERF.ACTION_INPUT_SIZE,
+        scoreThreshold: PERF.ACTION_SCORE_THRESHOLD,
+    });
 
-  const results = await faceapi
-    .detectAllFaces(ui.video, options)
-    .withFaceLandmarks()
-    .withFaceDescriptors();
+    const results = await faceapi
+        .detectAllFaces(ui.video, options)
+        .withFaceLandmarks()
+        .withFaceDescriptors();
 
-  const count = Array.isArray(results) ? results.length : 0;
+    const count = Array.isArray(results) ? results.length : 0;
 
-  if (count === 0) return { descriptor: null, reason: "none", count: 0 };
-  if (count > 1) return { descriptor: null, reason: "multiple", count };
+    if (count === 0) return { descriptor: null, reason: "none", count: 0 };
+    if (count > 1) return { descriptor: null, reason: "multiple", count };
 
-  const d = results[0]?.descriptor || null;
-  if (!d) return { descriptor: null, reason: "none", count: 1 };
-  return { descriptor: d, reason: "ok", count: 1 };
+    const d = results[0]?.descriptor || null;
+    if (!d) return { descriptor: null, reason: "none", count: 1 };
+    return { descriptor: d, reason: "ok", count: 1 };
 }
 
 function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
-  try {
-    const v = ui.video;
-    if (!v || !v.videoWidth || !v.videoHeight) return null;
+    try {
+        const v = ui.video;
+        if (!v || !v.videoWidth || !v.videoHeight) return null;
 
-    const w0 = v.videoWidth;
-    const h0 = v.videoHeight;
+        const w0 = v.videoWidth;
+        const h0 = v.videoHeight;
 
-    const scale = Math.min(1, maxW / w0);
-    const w = Math.round(w0 * scale);
-    const h = Math.round(h0 * scale);
+        const scale = Math.min(1, maxW / w0);
+        const w = Math.round(w0 * scale);
+        const h = Math.round(h0 * scale);
 
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(v, 0, 0, w, h);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(v, 0, 0, w, h);
 
-    return canvas.toDataURL("image/jpeg", quality);
-  } catch {
-    return null;
-  }
+        return canvas.toDataURL("image/jpeg", quality);
+    } catch {
+        return null;
+    }
 }
 
 // ✅ Live scan (throttled by setInterval) to show name while camera runs
 // ✅ Live scan (throttled by setInterval) to show name while camera runs
 async function runLiveScanOnce() {
-  if (!stream || !modelsReady || !ui.video) return;
-  if (scanInProgress) return;
+    if (!stream || !modelsReady || !ui.video) return;
+    if (scanInProgress) return;
 
-  if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return;
+    if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return;
 
-  scanInProgress = true;
-  try {
-    resizeOverlayToVideo();
+    scanInProgress = true;
+    try {
+        resizeOverlayToVideo();
 
-    const options = new faceapi.TinyFaceDetectorOptions({
-      inputSize: PERF.LIVE_INPUT_SIZE,
-      scoreThreshold: PERF.LIVE_SCORE_THRESHOLD,
-    });
+        const options = new faceapi.TinyFaceDetectorOptions({
+            inputSize: PERF.LIVE_INPUT_SIZE,
+            scoreThreshold: PERF.LIVE_SCORE_THRESHOLD,
+        });
 
-    const results = await faceapi
-      .detectAllFaces(ui.video, options)
-      .withFaceLandmarks()
-      .withFaceDescriptors();
+        const results = await faceapi
+            .detectAllFaces(ui.video, options)
+            .withFaceLandmarks()
+            .withFaceDescriptors();
 
-    const count = Array.isArray(results) ? results.length : 0;
-    const nowMs = Date.now();
+        const count = Array.isArray(results) ? results.length : 0;
+        const nowMs = Date.now();
 
-    const GREEN = "green";
-    const BLUE = "blue";
-    const RED   = "red";
+        const GREEN = "green";
+        const BLUE = "blue";
+        const RED = "red";
 
+        if (count === 0) {
+            clearOverlay();
+            if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
+            liveSingle = {
+                matched: false,
+                userId: null,
+                name: null,
+                updatedAt: nowMs,
+            };
 
-    if (count === 0) {
-      clearOverlay();
-      if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
-      liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+            // ✅ reset progress if no face
+            resetScanProgress();
+            return;
+        }
 
-      // ✅ reset progress if no face
-      resetScanProgress();
-      return;
+        const labels = new Array(count).fill("");
+
+        if (count > 1) {
+            for (let i = 0; i < count; i++) labels[i] = "Multiple faces";
+            drawResultsWithLabels(results, labels, { strokeStyle: RED });
+            if (ui.liveDetectedName)
+                ui.liveDetectedName.textContent = "Multiple faces";
+            liveSingle = {
+                matched: false,
+                userId: null,
+                name: null,
+                updatedAt: nowMs,
+            };
+
+            // ✅ reset progress if multiple faces
+            resetScanProgress();
+            return;
+        }
+
+        const threshold = Number(ui.threshold?.value ?? 0.55);
+        const d = results[0]?.descriptor || null;
+
+        if (!d) {
+            labels[0] = "Face detected";
+            drawResultsWithLabels(results, labels, { strokeStyle: BLUE });
+            if (ui.liveDetectedName)
+                ui.liveDetectedName.textContent = "Face detected";
+            liveSingle = {
+                matched: false,
+                userId: null,
+                name: null,
+                updatedAt: nowMs,
+            };
+
+            // ✅ reset progress if no descriptor
+            resetScanProgress();
+            return;
+        }
+
+        // ✅ DB-driven match via Laravel (face_profiles table)
+        const resp = await serverMatchDescriptor(d, threshold);
+
+        if (resp.matched && resp.user?.name) {
+            const uid = resp.user?.id ?? null;
+
+            // ✅ progress: reset if user changed
+            if (!uid) {
+                resetScanProgress();
+            } else if (scanProgressUserId !== uid) {
+                scanProgressUserId = uid;
+                scanProgressStartAt = nowMs;
+                scanProgressPct = 0;
+            } else if (!scanProgressStartAt) {
+                scanProgressStartAt = nowMs;
+            }
+
+            // ✅ compute 0–100% over the auto interval (2 seconds)
+            if (scanProgressStartAt) {
+                const elapsed = nowMs - scanProgressStartAt;
+                scanProgressPct = Math.max(
+                    0,
+                    Math.min(
+                        100,
+                        Math.round(
+                            (elapsed / PERF.AUTO_CHECKIN_INTERVAL_MS) * 100
+                        )
+                    )
+                );
+            } else {
+                scanProgressPct = 0;
+            }
+
+            // ✅ Decide color:
+            // - default scanning is BLUE
+            // - when progress hits 100% -> GREEN
+            // - after successful clock-in -> GREEN flash for a bit
+            const isFlashGreen = nowMs < scanSuccessFlashUntil;
+            const isReadyGreen = scanProgressPct >= 100;
+            const strokeStyle = isFlashGreen || isReadyGreen ? GREEN : BLUE;
+
+            const labelText = `${resp.user.name} ${scanProgressPct}%`;
+            labels[0] = labelText;
+
+            if (ui.liveDetectedName)
+                ui.liveDetectedName.textContent = labelText;
+
+            liveSingle = {
+                matched: true,
+                userId: uid,
+                name: resp.user.name,
+                updatedAt: nowMs,
+            };
+
+            drawResultsWithLabels(results, labels, { strokeStyle });
+        } else {
+            labels[0] = "Not registered";
+            if (ui.liveDetectedName)
+                ui.liveDetectedName.textContent = "Not registered";
+
+            liveSingle = {
+                matched: false,
+                userId: null,
+                name: null,
+                updatedAt: nowMs,
+            };
+
+            // ✅ reset progress if not registered
+            resetScanProgress();
+
+            drawResultsWithLabels(results, labels, { strokeStyle: RED });
+        }
+    } catch {
+        // ignore live scan errors
+    } finally {
+        scanInProgress = false;
     }
-
-    const labels = new Array(count).fill("");
-
-    if (count > 1) {
-      for (let i = 0; i < count; i++) labels[i] = "Multiple faces";
-      drawResultsWithLabels(results, labels, { strokeStyle: RED });
-      if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Multiple faces";
-      liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
-
-      // ✅ reset progress if multiple faces
-      resetScanProgress();
-      return;
-    }
-
-    const threshold = Number(ui.threshold?.value ?? 0.55);
-    const d = results[0]?.descriptor || null;
-
-    if (!d) {
-      labels[0] = "Face detected";
-      drawResultsWithLabels(results, labels, { strokeStyle: BLUE });
-      if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Face detected";
-      liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
-
-      // ✅ reset progress if no descriptor
-      resetScanProgress();
-      return;
-    }
-
-    // ✅ DB-driven match via Laravel (face_profiles table)
-    const resp = await serverMatchDescriptor(d, threshold);
-
-    if (resp.matched && resp.user?.name) {
-      const uid = resp.user?.id ?? null;
-
-      // ✅ progress: reset if user changed
-      if (!uid) {
-        resetScanProgress();
-      } else if (scanProgressUserId !== uid) {
-        scanProgressUserId = uid;
-        scanProgressStartAt = nowMs;
-        scanProgressPct = 0;
-      } else if (!scanProgressStartAt) {
-        scanProgressStartAt = nowMs;
-      }
-
-      // ✅ compute 0–100% over the auto interval (2 seconds)
-      if (scanProgressStartAt) {
-        const elapsed = nowMs - scanProgressStartAt;
-        scanProgressPct = Math.max(
-          0,
-          Math.min(100, Math.round((elapsed / PERF.AUTO_CHECKIN_INTERVAL_MS) * 100))
-        );
-      } else {
-        scanProgressPct = 0;
-      }
-
-      // ✅ Decide color:
-      // - default scanning is BLUE
-      // - when progress hits 100% -> GREEN
-      // - after successful clock-in -> GREEN flash for a bit
-      const isFlashGreen = nowMs < scanSuccessFlashUntil;
-      const isReadyGreen = scanProgressPct >= 100;
-      const strokeStyle = isFlashGreen || isReadyGreen ? GREEN : BLUE;
-
-      const labelText = `${resp.user.name} ${scanProgressPct}%`;
-      labels[0] = labelText;
-
-      if (ui.liveDetectedName) ui.liveDetectedName.textContent = labelText;
-
-      liveSingle = {
-        matched: true,
-        userId: uid,
-        name: resp.user.name,
-        updatedAt: nowMs,
-      };
-
-      drawResultsWithLabels(results, labels, { strokeStyle });
-    } else {
-      labels[0] = "Not registered";
-      if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Not registered";
-
-      liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
-
-      // ✅ reset progress if not registered
-      resetScanProgress();
-
-      drawResultsWithLabels(results, labels, { strokeStyle: RED });
-    }
-  } catch {
-    // ignore live scan errors
-  } finally {
-    scanInProgress = false;
-  }
 }
-
 
 // ---------------- Live loop control (CPU-friendly) ----------------
 function startLiveLoop() {
-  if (liveTimer) return;
-  liveTimer = setInterval(() => {
-    runLiveScanOnce();
-  }, PERF.LIVE_SCAN_INTERVAL_MS);
+    if (liveTimer) return;
+    liveTimer = setInterval(() => {
+        runLiveScanOnce();
+    }, PERF.LIVE_SCAN_INTERVAL_MS);
 }
 
 function stopLiveLoop() {
-  if (liveTimer) clearInterval(liveTimer);
-  liveTimer = null;
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = null;
 }
 
 // ---------------- AUTO CHECK-IN ONLY ----------------
 function shouldAutoCheckInNow() {
-  if (!stream || !modelsReady) return false;
-  if (!isSelectedDateToday()) return false;
-  if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return false;
+    if (!stream || !modelsReady) return false;
+    if (!isSelectedDateToday()) return false;
+    if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return false;
 
-  // must be exactly 1 registered face (set by live scan)
-  if (!liveSingle.matched || !liveSingle.userId) return false;
-  // ✅ must reach 100% first
-  if (scanProgressPct < 100) return false;
-  // prevent overlap
-  if (attendanceInProgress || autoCheckInInFlight) return false;
+    // must be exactly 1 registered face (set by live scan)
+    if (!liveSingle.matched || !liveSingle.userId) return false;
+    // ✅ must reach 100% first
+    if (scanProgressPct < 100) return false;
+    // prevent overlap
+    if (attendanceInProgress || autoCheckInInFlight) return false;
 
-  // cooldown for same person standing in front
-  const nowMs = Date.now();
-  if (
-    lastAutoCheckInUserId === liveSingle.userId &&
-    nowMs - lastAutoCheckInAt < PERF.AUTO_CHECKIN_SAME_USER_COOLDOWN_MS
-  ) {
-    return false;
-  }
+    // cooldown for same person standing in front
+    const nowMs = Date.now();
+    if (
+        lastAutoCheckInUserId === liveSingle.userId &&
+        nowMs - lastAutoCheckInAt < PERF.AUTO_CHECKIN_SAME_USER_COOLDOWN_MS
+    ) {
+        return false;
+    }
 
-  return true;
+    return true;
 }
 
 function startAutoCheckIn() {
-  if (autoCheckInTimer) return;
-  autoCheckInTimer = setInterval(async () => {
-    if (!shouldAutoCheckInNow()) return;
+    if (autoCheckInTimer) return;
+    autoCheckInTimer = setInterval(async () => {
+        if (!shouldAutoCheckInNow()) return;
 
-    autoCheckInInFlight = true;
-    try {
-      // ✅ AUTO = check-in only
-      await attendance("check-in", { auto: true });
-
-      
-    } finally {
-      autoCheckInInFlight = false;
-    }
-  }, PERF.AUTO_CHECKIN_INTERVAL_MS);
+        autoCheckInInFlight = true;
+        try {
+            // ✅ AUTO = check-in only
+            await attendance("check-in", { auto: true });
+        } finally {
+            autoCheckInInFlight = false;
+        }
+    }, PERF.AUTO_CHECKIN_INTERVAL_MS);
 }
 
 function stopAutoCheckIn() {
-  if (!autoCheckInTimer) return;
-  clearInterval(autoCheckInTimer);
-  autoCheckInTimer = null;
-  autoCheckInInFlight = false;
+    if (!autoCheckInTimer) return;
+    clearInterval(autoCheckInTimer);
+    autoCheckInTimer = null;
+    autoCheckInInFlight = false;
 }
 
 // keep auto check-in in sync with camera/date
 function syncAutoCheckIn() {
-  if (stream && isSelectedDateToday()) startAutoCheckIn();
-  else stopAutoCheckIn();
+    if (stream && isSelectedDateToday()) startAutoCheckIn();
+    else stopAutoCheckIn();
 }
 
 // ---------------- Camera ----------------
 async function startCamera() {
-  if (stream) return;
-  if (!ui.video) return;
+    if (stream) return;
+    if (!ui.video) return;
 
-  // starting camera is a user gesture -> try unlock speech here too
-  unlockSpeech();
+    // starting camera is a user gesture -> try unlock speech here too
+    unlockSpeech();
 
-  if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus("Your browser does not support camera access (getUserMedia).");
-    return;
-  }
+    if (!navigator.mediaDevices?.getUserMedia) {
+        setStatus(
+            "Your browser does not support camera access (getUserMedia)."
+        );
+        return;
+    }
 
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode,
-        width: { ideal: PERF.CAMERA_IDEAL_WIDTH },
-        height: { ideal: PERF.CAMERA_IDEAL_HEIGHT },
-      },
-      audio: false,
-    });
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode,
+                width: { ideal: PERF.CAMERA_IDEAL_WIDTH },
+                height: { ideal: PERF.CAMERA_IDEAL_HEIGHT },
+            },
+            audio: false,
+        });
 
-    ui.video.srcObject = stream;
-    ui.video.onloadedmetadata = () => resizeOverlayToVideo();
+        ui.video.srcObject = stream;
+        ui.video.onloadedmetadata = () => resizeOverlayToVideo();
 
-    await ui.video.play();
-    resizeOverlayToVideo();
+        await ui.video.play();
+        resizeOverlayToVideo();
 
-    appendStatus(`Camera started ✅ (facingMode: ${facingMode})`);
-    startLiveLoop();
+        appendStatus(`Camera started ✅ (facingMode: ${facingMode})`);
+        startLiveLoop();
 
-    // ✅ AUTO CHECK-IN only
-    syncAutoCheckIn();
-  } catch (e) {
-    stream = null;
-    appendStatus(`Camera error: ${e?.message || e}`);
-  }
+        // ✅ AUTO CHECK-IN only
+        syncAutoCheckIn();
+    } catch (e) {
+        stream = null;
+        appendStatus(`Camera error: ${e?.message || e}`);
+    }
 }
 
 function stopCamera() {
-  if (!stream) return;
+    if (!stream) return;
 
-  resetScanProgress();
-  scanSuccessFlashUntil = 0;
+    resetScanProgress();
+    scanSuccessFlashUntil = 0;
 
-  // ✅ stop auto check-in + live loop
-  stopAutoCheckIn();
-  stopLiveLoop();
+    // ✅ stop auto check-in + live loop
+    stopAutoCheckIn();
+    stopLiveLoop();
 
-  clearOverlay();
+    clearOverlay();
 
-  const tracks = stream.getTracks();
-  tracks.forEach((t) => t.stop());
+    const tracks = stream.getTracks();
+    tracks.forEach((t) => t.stop());
 
-  if (ui.video) ui.video.srcObject = null;
-  stream = null;
+    if (ui.video) ui.video.srcObject = null;
+    stream = null;
 
-  appendStatus("Camera stopped.");
-  if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
+    appendStatus("Camera stopped.");
+    if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
 
-  liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
+    liveSingle = {
+        matched: false,
+        userId: null,
+        name: null,
+        updatedAt: Date.now(),
+    };
 }
 
-
 async function flipCamera() {
-  facingMode = facingMode === "user" ? "environment" : "user";
-  if (!stream) {
-    appendStatus(`Switched facingMode: ${facingMode}`);
-    return;
-  }
-  stopCamera();
-  await startCamera();
+    facingMode = facingMode === "user" ? "environment" : "user";
+    if (!stream) {
+        appendStatus(`Switched facingMode: ${facingMode}`);
+        return;
+    }
+    stopCamera();
+    await startCamera();
 }
 
 // ---------------- UI rendering ----------------
 async function renderProfiles() {
-  // If you haven't mounted profilesList/enrolledCount in the UI yet, just skip safely
-  if (!ui.profilesList || !ui.enrolledCount) return;
+    // If you haven't mounted profilesList/enrolledCount in the UI yet, just skip safely
+    if (!ui.profilesList || !ui.enrolledCount) return;
 
-  ui.profilesList.innerHTML = "";
+    ui.profilesList.innerHTML = "";
 
-  // Try DB-backed list first (optional endpoint)
-  const server = await safeFetchJson("/api/face/profiles", { method: "GET" });
+    // Try DB-backed list first (optional endpoint)
+    const server = await safeFetchJson("/api/face/profiles", { method: "GET" });
 
-  if (server.ok && Array.isArray(server.data?.profiles)) {
-    const profiles = server.data.profiles;
+    if (server.ok && Array.isArray(server.data?.profiles)) {
+        const profiles = server.data.profiles;
 
-    ui.enrolledCount.textContent = String(profiles.length);
+        ui.enrolledCount.textContent = String(profiles.length);
 
-    if (!profiles.length) {
-      ui.profilesList.innerHTML = `
+        if (!profiles.length) {
+            ui.profilesList.innerHTML = `
         <div class="text-slate-400 text-sm">
           No enrolled profiles yet.
         </div>`;
-      return;
-    }
+            return;
+        }
 
-    for (const p of profiles) {
-      const row = document.createElement("div");
-      row.className =
-        "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3";
-      row.innerHTML = `
+        for (const p of profiles) {
+            const row = document.createElement("div");
+            row.className =
+                "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3";
+            row.innerHTML = `
         <div class="min-w-0">
           <div class="text-sm font-semibold truncate">${escapeHtml(
-            p.name || "User " + p.user_id
+              p.name || "User " + p.user_id
           )}</div>
           <div class="text-[11px] text-slate-400 font-mono truncate">user_id: ${
-            p.user_id
+              p.user_id
           } • face_profile_id: ${p.face_profile_id}</div>
         </div>
         <div class="text-[11px] text-slate-500">DB</div>
       `;
-      ui.profilesList.appendChild(row);
+            ui.profilesList.appendChild(row);
+        }
+
+        return;
     }
 
-    return;
-  }
+    // Fallback (legacy localStorage profiles)
+    const profiles = getProfiles();
+    ui.enrolledCount.textContent = String(profiles.length);
 
-  // Fallback (legacy localStorage profiles)
-  const profiles = getProfiles();
-  ui.enrolledCount.textContent = String(profiles.length);
-
-  if (!profiles.length) {
-    ui.profilesList.innerHTML = `
+    if (!profiles.length) {
+        ui.profilesList.innerHTML = `
       <div class="text-slate-400 text-sm">
         Enrolled list is empty (local).<br/>
         If you're using DB enrollment, add GET <span class="font-mono text-[11px]">/api/face/profiles</span> to show DB profiles.
       </div>`;
-    return;
-  }
+        return;
+    }
 
-  for (const p of profiles) {
-    const row = document.createElement("div");
-    row.className =
-      "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3";
-    row.innerHTML = `
+    for (const p of profiles) {
+        const row = document.createElement("div");
+        row.className =
+            "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3";
+        row.innerHTML = `
       <div class="min-w-0">
         <div class="text-sm font-semibold truncate">${escapeHtml(p.name)}</div>
         <div class="text-[11px] text-slate-400 font-mono truncate">${escapeHtml(
-          p.id
+            p.id
         )}</div>
       </div>
       <div class="flex items-center gap-2">
         <button data-del="${escapeHtml(
-          p.id
+            p.id
         )}" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">Delete</button>
       </div>
     `;
-    ui.profilesList.appendChild(row);
-  }
+        ui.profilesList.appendChild(row);
+    }
 
-  ui.profilesList.querySelectorAll("button[data-del]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const ok = await requireAdmin("Delete enrolled profile");
-      if (!ok) return;
+    ui.profilesList.querySelectorAll("button[data-del]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+            const ok = await requireAdmin("Delete enrolled profile");
+            if (!ok) return;
 
-      const id = btn.getAttribute("data-del");
-      const next = getProfiles().filter((p) => p.id !== id);
-      saveProfiles(next);
-      appendStatus(`Deleted profile: ${id}`);
-      renderProfiles();
-      renderLogs();
+            const id = btn.getAttribute("data-del");
+            const next = getProfiles().filter((p) => p.id !== id);
+            saveProfiles(next);
+            appendStatus(`Deleted profile: ${id}`);
+            renderProfiles();
+            renderLogs();
+        });
     });
-  });
 }
 
 async function renderLogs() {
-  if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
+    if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
 
-  const dateStr = ui.datePicker.value || isoDateLocal();
+    const dateStr = ui.datePicker.value || isoDateLocal();
 
-  // Try DB-backed logs first (optional endpoint)
-  const server = await safeFetchJson(
-    `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
-    { method: "GET" }
-  );
+    // Try DB-backed logs first (optional endpoint)
+    const server = await safeFetchJson(
+        `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
+        { method: "GET" }
+    );
 
-  if (server.ok && Array.isArray(server.data?.logs)) {
-    const logs = server.data.logs;
+    if (server.ok && Array.isArray(server.data?.logs)) {
+        const logs = server.data.logs;
 
-    // Convert server logs -> per-person summary (same UI)
-    const map = new Map();
+        // Convert server logs -> per-person summary (same UI)
+        const map = new Map();
 
-    for (const r of logs) {
-      const name = r.name || "User " + r.user_id;
-      if (!map.has(name)) {
-        map.set(name, {
-          name,
-          time_in: null,
-          time_out: null,
-          photo_in: null,
-          photo_out: null,
-        });
-      }
-      const item = map.get(name);
+        for (const r of logs) {
+            const name = r.name || "User " + r.user_id;
+            if (!map.has(name)) {
+                map.set(name, {
+                    name,
+                    time_in: null,
+                    time_out: null,
+                    photo_in: null,
+                    photo_out: null,
+                });
+            }
+            const item = map.get(name);
 
-      const t = r.occurred_at ? new Date(r.occurred_at) : null;
-      const timeStr = t ? timeLocal(t) : "—";
+            const t = r.occurred_at ? new Date(r.occurred_at) : null;
+            const timeStr = t ? timeLocal(t) : "—";
 
-      if (r.type === "in") {
-        if (!item.time_in) item.time_in = timeStr;
-      } else if (r.type === "out") {
-        item.time_out = timeStr;
-      }
-    }
+            if (r.type === "in") {
+                if (!item.time_in) item.time_in = timeStr;
+            } else if (r.type === "out") {
+                item.time_out = timeStr;
+            }
+        }
 
-    const rows = Array.from(map.values());
-    rows.sort((a, b) => a.name.localeCompare(b.name));
+        const rows = Array.from(map.values());
+        rows.sort((a, b) => a.name.localeCompare(b.name));
 
-    ui.logsCount.textContent = String(rows.length);
-    ui.logsTbody.innerHTML = "";
+        ui.logsCount.textContent = String(rows.length);
+        ui.logsTbody.innerHTML = "";
 
-    if (!rows.length) {
-      ui.logsTbody.innerHTML = `
+        if (!rows.length) {
+            ui.logsTbody.innerHTML = `
         <tr>
           <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
         </tr>
       `;
-      return;
-    }
+            return;
+        }
 
-    for (const r of rows) {
-      const tr = document.createElement("tr");
-      tr.className = "text-slate-200";
+        for (const r of rows) {
+            const tr = document.createElement("tr");
+            tr.className = "text-slate-200";
 
-      tr.innerHTML = `
+            tr.innerHTML = `
         <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
         <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-          r.time_in || "—"
+            r.time_in || "—"
         )}</td>
         <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-          r.time_out || "—"
+            r.time_out || "—"
         )}</td>
         <td class="px-3 py-2">
           <span class="text-slate-500 text-[11px]">—</span>
         </td>
       `;
-      ui.logsTbody.appendChild(tr);
+            ui.logsTbody.appendChild(tr);
+        }
+
+        return;
     }
 
-    return;
-  }
+    // Fallback to local UI cache
+    const rows = buildDaySummary(dateStr);
 
-  // Fallback to local UI cache
-  const rows = buildDaySummary(dateStr);
+    ui.logsCount.textContent = String(rows.length);
+    ui.logsTbody.innerHTML = "";
 
-  ui.logsCount.textContent = String(rows.length);
-  ui.logsTbody.innerHTML = "";
-
-  if (!rows.length) {
-    ui.logsTbody.innerHTML = `
+    if (!rows.length) {
+        ui.logsTbody.innerHTML = `
       <tr>
         <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
       </tr>
     `;
-    return;
-  }
+        return;
+    }
 
-  for (const r of rows) {
-    const tr = document.createElement("tr");
-    tr.className = "text-slate-200";
+    for (const r of rows) {
+        const tr = document.createElement("tr");
+        tr.className = "text-slate-200";
 
-    const photo = r.photo_in || r.photo_out || null;
+        const photo = r.photo_in || r.photo_out || null;
 
-    tr.innerHTML = `
+        tr.innerHTML = `
       <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
       <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-        r.time_in || "—"
+          r.time_in || "—"
       )}</td>
       <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-        r.time_out || "—"
+          r.time_out || "—"
       )}</td>
       <td class="px-3 py-2">
         ${
-          photo
-            ? `<a class="text-sky-300 hover:text-sky-200 underline text-[11px]" href="${photo}" target="_blank" rel="noopener">View</a>`
-            : `<span class="text-slate-500 text-[11px]">—</span>`
+            photo
+                ? `<a class="text-sky-300 hover:text-sky-200 underline text-[11px]" href="${photo}" target="_blank" rel="noopener">View</a>`
+                : `<span class="text-slate-500 text-[11px]">—</span>`
         }
       </td>
     `;
 
-    ui.logsTbody.appendChild(tr);
-  }
+        ui.logsTbody.appendChild(tr);
+    }
 }
 
 function setDateToToday() {
-  if (!ui.datePicker) return;
-  ui.datePicker.value = isoDateLocal();
-  renderLogs();
-  updateCheckButtonsState();
-  syncAutoCheckIn();
+    if (!ui.datePicker) return;
+    ui.datePicker.value = isoDateLocal();
+    renderLogs();
+    updateCheckButtonsState();
+    syncAutoCheckIn();
 }
 
 // ---------------- Attendance actions ----------------
 async function enroll() {
-  const name = (ui.enrollName?.value || "").trim();
-  const contact_number = (ui.enrollContact?.value || "").trim();
-  const password = (ui.enrollPassword?.value || "").trim();
-  const roleId = Number(ui.enrollRole?.value || 0);
+    const name = (ui.enrollName?.value || "").trim();
+    const contact_number = (ui.enrollContact?.value || "").trim();
+    const password = (ui.enrollPassword?.value || "").trim();
+    const roleId = Number(ui.enrollRole?.value || 0);
 
-  if (!name) {
-    appendStatus("Enroll: Please enter a name.");
-    return;
-  }
-  if (!contact_number) {
-    appendStatus("Enroll: Please enter a contact number.");
-    return;
-  }
-  if (!password || password.length < 8) {
-    appendStatus("Enroll: Password must be at least 8 characters.");
-    return;
-  }
-
-
-  if (!roleId) {
-  appendStatus("Enroll: Please select a role.");
-  return;
-}
-
-  if (!stream) {
-    appendStatus("Enroll: Start the camera first.");
-    return;
-  }
-  if (!modelsReady) {
-    appendStatus("Enroll: Models not ready yet.");
-    return;
-  }
-
-  
-
-  appendStatus("Enroll: Capturing face…");
-
-  const scan = await getSingleDescriptorStrict();
-  if (!scan?.descriptor) {
-    if (scan?.reason === "multiple") {
-      appendStatus(
-        `Enroll: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
-      );
-    } else {
-      appendStatus("Enroll: Face not detected.");
+    if (!name) {
+        appendStatus("Enroll: Please enter a name.");
+        return;
     }
-    return;
-  }
+    if (!contact_number) {
+        appendStatus("Enroll: Please enter a contact number.");
+        return;
+    }
+    if (!password || password.length < 8) {
+        appendStatus("Enroll: Password must be at least 8 characters.");
+        return;
+    }
 
-  const threshold = Number(ui.threshold?.value ?? 0.55);
-
-  // Optional: block enrolling if already matches someone (avoid duplicates)
-  const matchResp = await safeFetchJson("/api/face/match", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      descriptor: Array.from(scan.descriptor),
-      threshold,
-    }),
-  });
-
-  if (matchResp.ok && matchResp.data?.matched) {
-    appendStatus(
-      `Enroll blocked: Face already registered as ${
-        matchResp.data?.user?.name || "someone"
-      }.`
-    );
-    return;
-  }
-
-  const r = await safeFetchJson("/api/enroll", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name,
-      contact_number,
-      password,
-      role_id: roleId,
-      descriptor: Array.from(scan.descriptor),
-      label: "Enrollment",
-    }),
-  });
-
-  if (!r.ok) {
-    const msg =
-      r.data?.message ||
-      (r.data?.errors
-        ? Object.values(r.data.errors).flat().join(" ")
-        : `HTTP ${r.status}`);
-    appendStatus(`Enroll failed: ${msg}`);
-    return;
-  }
-
-  appendStatus(`Enroll success ✅ user_id=${r.data?.user?.id ?? "?"}`);
-  if (ui.enrollName) ui.enrollName.value = "";
-  if (ui.enrollContact) ui.enrollContact.value = "";
-  if (ui.enrollPassword) ui.enrollPassword.value = "";
-  renderProfiles();
-}
-
-async function attendance(type, opts = { auto: false }) {
-  const isAuto = !!opts?.auto;
-  const dateStr = ui.datePicker?.value || isoDateLocal();
-
-  // Don't spam if already running
-  if (attendanceInProgress) return;
-  attendanceInProgress = true;
-
-  try {
-    if (dateStr !== isoDateLocal()) {
-      if (!isAuto) {
-        appendStatus(
-          "Range view is read-only. Set From = To to edit a single date."
-        );
-        appendStatus("Check In/Out works ONLY on TODAY.");
-      }
-      return;
+    if (!roleId) {
+        appendStatus("Enroll: Please select a role.");
+        return;
     }
 
     if (!stream) {
-      if (!isAuto) appendStatus(`${type}: Start the camera first.`);
-      return;
+        appendStatus("Enroll: Start the camera first.");
+        return;
+    }
+    if (!modelsReady) {
+        appendStatus("Enroll: Models not ready yet.");
+        return;
     }
 
-    if (!modelsReady) {
-      if (!isAuto) appendStatus(`${type}: Models not ready yet.`);
-      return;
+    appendStatus("Enroll: Capturing face…");
+
+    const scan = await getSingleDescriptorStrict();
+    if (!scan?.descriptor) {
+        if (scan?.reason === "multiple") {
+            appendStatus(
+                `Enroll: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
+            );
+        } else {
+            appendStatus("Enroll: Face not detected.");
+        }
+        return;
     }
 
     const threshold = Number(ui.threshold?.value ?? 0.55);
 
-    // Enforce today's only
-    if (!isSelectedDateToday()) {
-      if (!isAuto) appendStatus("Check In/Out is disabled for past dates.");
-      return;
+    // Optional: block enrolling if already matches someone (avoid duplicates)
+    const matchResp = await safeFetchJson("/api/face/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            descriptor: Array.from(scan.descriptor),
+            threshold,
+        }),
+    });
+
+    if (matchResp.ok && matchResp.data?.matched) {
+        appendStatus(
+            `Enroll blocked: Face already registered as ${
+                matchResp.data?.user?.name || "someone"
+            }.`
+        );
+        return;
     }
 
-    // Disable buttons while processing (manual only)
-    if (!isAuto) {
-      if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
-      if (ui.btnCheckOut) ui.btnCheckOut.disabled = true;
-    }
-
-    if (!isAuto) appendStatus(`${type}: Scanning…`);
-
-    const scan = await getSingleDescriptorStrict();
-    if (!scan?.descriptor) {
-      if (!isAuto) {
-        if (scan?.reason === "multiple") {
-          appendStatus(
-            `${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
-          );
-        } else {
-          appendStatus(`${type}: Face not detected.`);
-        }
-      }
-      return;
-    }
-
-    // Optional: capture a small photo for your logs (UI + backend)
-    const photo = capturePhotoDataUrlScaled(
-      PERF.PHOTO_LOG_MAX_WIDTH,
-      PERF.PHOTO_LOG_QUALITY
-    );
-
-    // Map UI type -> backend type (AttendanceController expects "in" / "out")
-    const apiType = type === "check-in" ? "in" : "out";
-
-    const r = await safeFetchJson("/api/attendance/clock", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: apiType,
-        descriptor: Array.from(scan.descriptor),
-        threshold,
-        device_id: "kiosk-1",
-        photo_data_url: photo || null,
-      }),
+    const r = await safeFetchJson("/api/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            name,
+            contact_number,
+            password,
+            role_id: roleId,
+            descriptor: Array.from(scan.descriptor),
+            label: "Enrollment",
+        }),
     });
 
     if (!r.ok) {
-      const msg =
-        r.data?.message ||
-        (r.data?.errors
-          ? Object.values(r.data.errors).flat().join(" ")
-          : `HTTP ${r.status}`);
-
-      // For AUTO mode, keep it quiet (optional)
-      if (!isAuto) appendStatus(`${type}: ${msg}`);
-      return;
+        const msg =
+            r.data?.message ||
+            (r.data?.errors
+                ? Object.values(r.data.errors).flat().join(" ")
+                : `HTTP ${r.status}`);
+        appendStatus(`Enroll failed: ${msg}`);
+        return;
     }
 
-    const userId = r.data?.user?.id ?? null;
-    const name = r.data?.user?.name || "Unknown";
+    appendStatus(`Enroll success ✅ user_id=${r.data?.user?.id ?? "?"}`);
+    if (ui.enrollName) ui.enrollName.value = "";
+    if (ui.enrollContact) ui.enrollContact.value = "";
+    if (ui.enrollPassword) ui.enrollPassword.value = "";
+    renderProfiles();
+}
 
-    // ✅ ADD THIS HERE (success path)
-    if (type === "check-in") {
-      scanSuccessFlashUntil = Date.now() + 1200; // 1.2s green flash
-      resetScanProgress();
+async function attendance(type, opts = { auto: false }) {
+    const isAuto = !!opts?.auto;
+    const dateStr = ui.datePicker?.value || isoDateLocal();
+
+    // Don't spam if already running
+    if (attendanceInProgress) return;
+    attendanceInProgress = true;
+
+    try {
+        if (dateStr !== isoDateLocal()) {
+            if (!isAuto) {
+                appendStatus(
+                    "Range view is read-only. Set From = To to edit a single date."
+                );
+                appendStatus("Check In/Out works ONLY on TODAY.");
+            }
+            return;
+        }
+
+        if (!stream) {
+            if (!isAuto) appendStatus(`${type}: Start the camera first.`);
+            return;
+        }
+
+        if (!modelsReady) {
+            if (!isAuto) appendStatus(`${type}: Models not ready yet.`);
+            return;
+        }
+
+        const threshold = Number(ui.threshold?.value ?? 0.55);
+
+        // Enforce today's only
+        if (!isSelectedDateToday()) {
+            if (!isAuto)
+                appendStatus("Check In/Out is disabled for past dates.");
+            return;
+        }
+
+        // Disable buttons while processing (manual only)
+        if (!isAuto) {
+            if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
+            if (ui.btnCheckOut) ui.btnCheckOut.disabled = true;
+        }
+
+        if (!isAuto) appendStatus(`${type}: Scanning…`);
+
+        const scan = await getSingleDescriptorStrict();
+        if (!scan?.descriptor) {
+            if (!isAuto) {
+                if (scan?.reason === "multiple") {
+                    appendStatus(
+                        `${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
+                    );
+                } else {
+                    appendStatus(`${type}: Face not detected.`);
+                }
+            }
+            return;
+        }
+
+        // Optional: capture a small photo for your logs (UI + backend)
+        const photo = capturePhotoDataUrlScaled(
+            PERF.PHOTO_LOG_MAX_WIDTH,
+            PERF.PHOTO_LOG_QUALITY
+        );
+
+        // Map UI type -> backend type (AttendanceController expects "in" / "out")
+        const apiType = type === "check-in" ? "in" : "out";
+
+        const r = await safeFetchJson("/api/attendance/clock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                type: apiType,
+                descriptor: Array.from(scan.descriptor),
+                threshold,
+                device_id: "kiosk-1",
+                photo_data_url: photo || null,
+            }),
+        });
+
+        if (!r.ok) {
+            const msg =
+                r.data?.message ||
+                (r.data?.errors
+                    ? Object.values(r.data.errors).flat().join(" ")
+                    : `HTTP ${r.status}`);
+
+            // For AUTO mode, keep it quiet (optional)
+            if (!isAuto) appendStatus(`${type}: ${msg}`);
+            return;
+        }
+
+        const userId = r.data?.user?.id ?? null;
+        const name = r.data?.user?.name || "Unknown";
+
+        // ✅ ADD THIS HERE (success path)
+        if (type === "check-in") {
+            scanSuccessFlashUntil = Date.now() + 1200; // 1.2s green flash
+            resetScanProgress();
+        }
+        // Mark cooldown for auto
+        if (isAuto && userId) {
+            lastAutoCheckInUserId = userId;
+            lastAutoCheckInAt = Date.now();
+        }
+
+        // Only spam status log for manual
+        if (!isAuto) appendStatus(`${type}: Saved ✅ (${name})`);
+
+        // ✅ Speak the REGISTERED name returned by backend
+        // NOTE: Auto speech may be blocked unless browser is unlocked (we unlock on Start/Buttons)
+        const say = type === "check-in" ? "time in" : "time out";
+        if (name && name !== "Unknown") speak(`${name} ${say}`);
+        else speak("Unknown face. Please scan again.");
+
+        const actionLabel = type === "check-in" ? "Time-In" : "Time-Out";
+
+        showRightToast({
+            name,
+            date: dateStr, // YYYY-MM-DD
+            time: timeLocal(now()), // HH:mm:ss
+            action: actionLabel,
+            photoDataUrl: photo || null, // the captured image
+        });
+
+        // ✅ Update UI table immediately (local UI cache only; DB is the source of truth)
+        addLog(dateStr, {
+            name,
+            type,
+            time: timeLocal(now()),
+            photo_data_url: photo || null,
+            server_log_id: r.data?.log_id ?? null,
+        });
+
+        renderLogs();
+    } finally {
+        attendanceInProgress = false;
+        updateCheckButtonsState();
     }
-    // Mark cooldown for auto
-    if (isAuto && userId) {
-      lastAutoCheckInUserId = userId;
-      lastAutoCheckInAt = Date.now();
-    }
-
-    // Only spam status log for manual
-    if (!isAuto) appendStatus(`${type}: Saved ✅ (${name})`);
-
-    // ✅ Speak the REGISTERED name returned by backend
-    // NOTE: Auto speech may be blocked unless browser is unlocked (we unlock on Start/Buttons)
-    const say = type === "check-in" ? "time in" : "time out";
-    if (name && name !== "Unknown") speak(`${name} ${say}`);
-    else speak("Unknown face. Please scan again.");
-
-    const actionLabel = type === "check-in" ? "Time-In" : "Time-Out";
-
-    showRightToast({
-      name,
-      date: dateStr, // YYYY-MM-DD
-      time: timeLocal(now()), // HH:mm:ss
-      action: actionLabel,
-      photoDataUrl: photo || null, // the captured image
-    });
-
-    // ✅ Update UI table immediately (local UI cache only; DB is the source of truth)
-    addLog(dateStr, {
-      name,
-      type,
-      time: timeLocal(now()),
-      photo_data_url: photo || null,
-      server_log_id: r.data?.log_id ?? null,
-    });
-
-    renderLogs();
-  } finally {
-    attendanceInProgress = false;
-    updateCheckButtonsState();
-  }
 }
 
 // ---------------- CSV/JSON export (local UI cache) ----------------
 function downloadText(filename, text) {
-  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-    a.remove();
-  }, 0);
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        URL.revokeObjectURL(url);
+        a.remove();
+    }, 0);
 }
 
 function downloadDayCsv() {
-  const dateStr = ui.datePicker?.value || isoDateLocal();
-  const logs = getLogsForDate(dateStr);
+    const dateStr = ui.datePicker?.value || isoDateLocal();
+    const logs = getLogsForDate(dateStr);
 
-  const headers = ["name", "type", "time", "photo_data_url"];
-  const lines = [headers.join(",")];
+    const headers = ["name", "type", "time", "photo_data_url"];
+    const lines = [headers.join(",")];
 
-  for (const r of logs) {
-    const row = [
-      (r?.name || "").replaceAll('"', '""'),
-      (r?.type || "").replaceAll('"', '""'),
-      (r?.time || "").replaceAll('"', '""'),
-      (r?.photo_data_url || "").replaceAll('"', '""'),
-    ].map((v) => `"${v}"`);
-    lines.push(row.join(","));
-  }
+    for (const r of logs) {
+        const row = [
+            (r?.name || "").replaceAll('"', '""'),
+            (r?.type || "").replaceAll('"', '""'),
+            (r?.time || "").replaceAll('"', '""'),
+            (r?.photo_data_url || "").replaceAll('"', '""'),
+        ].map((v) => `"${v}"`);
+        lines.push(row.join(","));
+    }
 
-  downloadText(`attendance_${dateStr}.csv`, lines.join("\n"));
+    downloadText(`attendance_${dateStr}.csv`, lines.join("\n"));
 }
 
 function downloadDayJson() {
-  const dateStr = ui.datePicker?.value || isoDateLocal();
-  const logs = getLogsForDate(dateStr);
-  downloadText(`attendance_${dateStr}.json`, JSON.stringify(logs, null, 2));
+    const dateStr = ui.datePicker?.value || isoDateLocal();
+    const logs = getLogsForDate(dateStr);
+    downloadText(`attendance_${dateStr}.json`, JSON.stringify(logs, null, 2));
+}
+
+async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
+    const dateStr = ui.datePicker?.value || isoDateLocal();
+
+    // Make sure SheetJS is loaded
+    if (!window.XLSX?.utils) {
+        alert(
+            "XLSX library not loaded. (SheetJS script must load before app.js)"
+        );
+        return;
+    }
+
+    // 1) Prefer DB logs if endpoint exists, else fallback to local UI cache
+    let source = "local";
+    let raw = [];
+
+    const server = await safeFetchJson(
+        `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
+        { method: "GET" }
+    );
+
+    if (server.ok && Array.isArray(server.data?.logs)) {
+        source = "db";
+        raw = server.data.logs.map((r) => {
+            const dt = r.occurred_at ? new Date(r.occurred_at) : null;
+
+            const roleName =
+                r.role_name ||
+                r.role?.name ||
+                r.user?.role_name ||
+                r.user?.role?.name ||
+                "";
+
+            return {
+                date: dateStr,
+                occurred_at: r.occurred_at || "",
+                time: dt ? timeLocal(dt) : "",
+                name:
+                    r.name ||
+                    r.user_name ||
+                    (r.user_id ? `User ${r.user_id}` : ""),
+                role: roleName,
+                type: r.type || "", // usually "in" / "out"
+                user_id: r.user_id || r.user?.id || "",
+                device_id: r.device_id || "",
+                photo_path: r.photo_path || "",
+                photo_data_url: includePhotoDataUrl
+                    ? r.photo_data_url || ""
+                    : "",
+                meta:
+                    r.meta == null
+                        ? ""
+                        : typeof r.meta === "string"
+                        ? r.meta
+                        : JSON.stringify(r.meta),
+            };
+        });
+    } else {
+        // local fallback
+        raw = getLogsForDate(dateStr).map((r) => ({
+            date: dateStr,
+            occurred_at:
+                r?.occurred_at || (r?.time ? `${dateStr} ${r.time}` : ""),
+            time: r?.time || "",
+            name: r?.name || "",
+            role: r?.role || r?.role_name || "",
+            type: r?.type || "", // "check-in" / "check-out"
+            user_id: r?.user_id || "",
+            device_id: r?.device_id || "",
+            photo_path: r?.photo_path || "",
+            photo_data_url: includePhotoDataUrl ? r?.photo_data_url || "" : "",
+            meta:
+                r?.meta == null
+                    ? ""
+                    : typeof r.meta === "string"
+                    ? r.meta
+                    : JSON.stringify(r.meta),
+        }));
+    }
+
+    // 2) Build Summary sheet (one row per person: first in, last out)
+    const summaryMap = new Map();
+
+    for (const r of raw) {
+        const key = r.user_id || r.name || "unknown";
+        if (!summaryMap.has(key)) {
+            summaryMap.set(key, {
+                date: dateStr,
+                user_id: r.user_id || "",
+                name: r.name || "",
+                role: r.role || "",
+                time_in: "",
+                time_out: "",
+                source,
+            });
+        }
+
+        const item = summaryMap.get(key);
+
+        // Normalize types
+        const t = (r.type || "").toLowerCase();
+        const isIn = t === "in" || t === "check-in" || t === "time-in";
+        const isOut = t === "out" || t === "check-out" || t === "time-out";
+
+        if (isIn) {
+            // earliest in
+            if (!item.time_in || (r.time && r.time < item.time_in))
+                item.time_in = r.time;
+        }
+        if (isOut) {
+            // latest out
+            if (!item.time_out || (r.time && r.time > item.time_out))
+                item.time_out = r.time;
+        }
+
+        // keep role/name if missing
+        if (!item.name && r.name) item.name = r.name;
+        if (!item.role && r.role) item.role = r.role;
+    }
+
+    const summary = Array.from(summaryMap.values()).sort((a, b) =>
+        (a.name || "").localeCompare(b.name || "")
+    );
+
+    // 3) Create workbook with 2 sheets: Summary + Raw Logs
+    const wb = XLSX.utils.book_new();
+
+    const wsSummary = XLSX.utils.json_to_sheet(summary, {
+        header: [
+            "date",
+            "user_id",
+            "name",
+            "role",
+            "time_in",
+            "time_out",
+            "source",
+        ],
+    });
+    wsSummary["!freeze"] = { xSplit: 0, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, wsSummary, `Summary ${dateStr}`);
+
+    const wsRaw = XLSX.utils.json_to_sheet(raw, {
+        header: [
+            "date",
+            "occurred_at",
+            "time",
+            "name",
+            "role",
+            "type",
+            "user_id",
+            "device_id",
+            "photo_path",
+            "photo_data_url",
+            "meta",
+        ],
+    });
+    wsRaw["!freeze"] = { xSplit: 0, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, wsRaw, `Raw Logs ${dateStr}`);
+
+    XLSX.writeFile(wb, `attendance_${dateStr}.xlsx`);
 }
 
 async function clearDay() {
-  const ok = await requireAdmin("Clear logs for selected day");
-  if (!ok) return;
+    const ok = await requireAdmin("Clear logs for selected day");
+    if (!ok) return;
 
-  const dateStr = ui.datePicker?.value || isoDateLocal();
-  const logs = getLogs();
-  delete logs[dateStr];
-  saveLogs(logs);
+    const dateStr = ui.datePicker?.value || isoDateLocal();
+    const logs = getLogs();
+    delete logs[dateStr];
+    saveLogs(logs);
 
-  appendStatus(`Cleared logs for ${dateStr}`);
-  renderLogs();
+    appendStatus(`Cleared logs for ${dateStr}`);
+    renderLogs();
 }
 
 async function clearAll() {
-  const ok = await requireAdmin("Reset ALL local data (UI cache + legacy profiles)");
-  if (!ok) return;
+    const ok = await requireAdmin(
+        "Reset ALL local data (UI cache + legacy profiles)"
+    );
+    if (!ok) return;
 
-  localStorage.removeItem(STORAGE_PROFILES);
-  localStorage.removeItem(STORAGE_LOGS);
+    localStorage.removeItem(STORAGE_PROFILES);
+    localStorage.removeItem(STORAGE_LOGS);
 
-  appendStatus("Local reset done ✅ (DB data remains).");
-  renderProfiles();
-  renderLogs();
+    appendStatus("Local reset done ✅ (DB data remains).");
+    renderProfiles();
+    renderLogs();
 }
 
 // ---------------- Threshold gating ----------------
 function gateThresholdEvents() {
-  if (!ui.threshold) return;
+    if (!ui.threshold) return;
 
-  ui.threshold.addEventListener("mousedown", async () => {
-    if (adminUnlockedThreshold) return;
+    ui.threshold.addEventListener("mousedown", async () => {
+        if (adminUnlockedThreshold) return;
 
-    const ok = await requireAdmin("Unlock threshold slider");
-    if (ok) {
-      adminUnlockedThreshold = true;
-      setAdminLoggedIn(true);
-      applyAdminUiState();
-      appendStatus("Threshold unlocked ✅ (admin)");
-    } else {
-      if (lastThresholdValue !== null) setThresholdValue(lastThresholdValue);
-      appendStatus("Threshold change blocked (admin password required).");
-    }
-  });
+        const ok = await requireAdmin("Unlock threshold slider");
+        if (ok) {
+            adminUnlockedThreshold = true;
+            setAdminLoggedIn(true);
+            applyAdminUiState();
+            appendStatus("Threshold unlocked ✅ (admin)");
+        } else {
+            if (lastThresholdValue !== null)
+                setThresholdValue(lastThresholdValue);
+            appendStatus("Threshold change blocked (admin password required).");
+        }
+    });
 
-  ui.threshold.addEventListener("input", () => {
-    if (adminUnlockedThreshold) {
-      lastThresholdValue = Number(ui.threshold.value);
-      updateThresholdUI();
-      return;
-    }
-    if (lastThresholdValue === null) lastThresholdValue = Number(ui.threshold.value);
-    setThresholdValue(lastThresholdValue);
-  });
+    ui.threshold.addEventListener("input", () => {
+        if (adminUnlockedThreshold) {
+            lastThresholdValue = Number(ui.threshold.value);
+            updateThresholdUI();
+            return;
+        }
+        if (lastThresholdValue === null)
+            lastThresholdValue = Number(ui.threshold.value);
+        setThresholdValue(lastThresholdValue);
+    });
 
-  ui.threshold.addEventListener("change", () => {
-    if (adminUnlockedThreshold) {
-      lastThresholdValue = Number(ui.threshold.value);
-      updateThresholdUI();
-      appendStatus(`Threshold set to ${Number(ui.threshold.value).toFixed(2)}`);
-    }
-  });
+    ui.threshold.addEventListener("change", () => {
+        if (adminUnlockedThreshold) {
+            lastThresholdValue = Number(ui.threshold.value);
+            updateThresholdUI();
+            appendStatus(
+                `Threshold set to ${Number(ui.threshold.value).toFixed(2)}`
+            );
+        }
+    });
 }
 
 // ---------------- Profile export/import (legacy local) ----------------
 function exportProfiles() {
-  const profiles = getProfiles();
-  downloadText("profiles.json", JSON.stringify(profiles, null, 2));
+    const profiles = getProfiles();
+    downloadText("profiles.json", JSON.stringify(profiles, null, 2));
 }
 
 async function importProfilesFromFile(file) {
-  const ok = await requireAdmin("Import profiles (legacy local)");
-  if (!ok) return;
+    const ok = await requireAdmin("Import profiles (legacy local)");
+    if (!ok) return;
 
-  const text = await file.text();
-  const data = safeJsonParse(text, null);
-  if (!Array.isArray(data)) {
-    appendStatus("Import failed: JSON must be an array of profiles.");
-    return;
-  }
+    const text = await file.text();
+    const data = safeJsonParse(text, null);
+    if (!Array.isArray(data)) {
+        appendStatus("Import failed: JSON must be an array of profiles.");
+        return;
+    }
 
-  const cleaned = data.filter(
-    (p) => p && p.name && Array.isArray(p.descriptor) && p.descriptor.length === 128
-  );
+    const cleaned = data.filter(
+        (p) =>
+            p &&
+            p.name &&
+            Array.isArray(p.descriptor) &&
+            p.descriptor.length === 128
+    );
 
-  saveProfiles(cleaned);
-  appendStatus(`Imported ${cleaned.length} profiles ✅ (local only)`);
-  renderProfiles();
+    saveProfiles(cleaned);
+    appendStatus(`Imported ${cleaned.length} profiles ✅ (local only)`);
+    renderProfiles();
 }
 
 // ---------------- Wire up ----------------
 function bindEvents() {
-  if (ui.btnStart) ui.btnStart.addEventListener("click", startCamera);
-  if (ui.btnStop) ui.btnStop.addEventListener("click", stopCamera);
-  if (ui.btnFlip) ui.btnFlip.addEventListener("click", flipCamera);
+    if (ui.btnStart) ui.btnStart.addEventListener("click", startCamera);
+    if (ui.btnStop) ui.btnStop.addEventListener("click", stopCamera);
+    if (ui.btnFlip) ui.btnFlip.addEventListener("click", flipCamera);
 
-  if (ui.btnToday) ui.btnToday.addEventListener("click", setDateToToday);
+    if (ui.btnToday) ui.btnToday.addEventListener("click", setDateToToday);
 
-  if (ui.datePicker) {
-    ui.datePicker.addEventListener("change", () => {
-      renderLogs();
-      updateCheckButtonsState();
-      syncAutoCheckIn(); // ✅ auto check-in only if today + camera running
-    });
-  }
-
-  if (ui.btnEnroll) {
-    ui.btnEnroll.addEventListener("click", (e) => {
-      e.preventDefault();
-      enroll().catch((err) => appendStatus(`Enroll error: ${err?.message || err}`));
-    });
-  }
-  
-
-  // ✅ Manual check-in still available (optional)
-  if (ui.btnCheckIn) {
-    ui.btnCheckIn.addEventListener("click", () => {
-      unlockSpeech();
-      attendance("check-in", { auto: false }).catch((e) =>
-        appendStatus(`Check-in error: ${e?.message || e}`)
-      );
-    });
-  }
-
-  // ✅ Check-out must be CLICKED (manual)
-  if (ui.btnCheckOut) {
-    ui.btnCheckOut.addEventListener("click", () => {
-      unlockSpeech();
-      attendance("check-out", { auto: false }).catch((e) =>
-        appendStatus(`Check-out error: ${e?.message || e}`)
-      );
-    });
-  }
-
-  if (ui.btnDownloadDay) ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
-  if (ui.btnDownloadDayJson)
-    ui.btnDownloadDayJson.addEventListener("click", downloadDayJson);
-
-  if (ui.btnClearDay) {
-    ui.btnClearDay.addEventListener("click", () =>
-      clearDay().catch((e) => appendStatus(`Clear-day error: ${e?.message || e}`))
-    );
-  }
-
-  if (ui.btnClearAll) {
-    ui.btnClearAll.addEventListener("click", () =>
-      clearAll().catch((e) => appendStatus(`Reset error: ${e?.message || e}`))
-    );
-  }
-
-  if (ui.btnChangePw) {
-    ui.btnChangePw.addEventListener("click", () => {
-      setOrChangePasswordFlow().catch((e) =>
-        appendStatus(`Password error: ${e?.message || e}`)
-      );
-    });
-  }
-
-  if (ui.btnExportProfiles)
-    ui.btnExportProfiles.addEventListener("click", exportProfiles);
-
-  if (ui.importProfiles) {
-    ui.importProfiles.addEventListener("change", (ev) => {
-      const file = ev.target.files?.[0];
-      if (!file) return;
-      importProfilesFromFile(file).catch((e) =>
-        appendStatus(`Import error: ${e?.message || e}`)
-      );
-      ev.target.value = "";
-    });
-  }
-
-  // ✅ Admin Access / Logout toggle
-  if (ui.btnAdminToggle) {
-    ui.btnAdminToggle.addEventListener("click", async () => {
-      if (isAdminLoggedIn()) {
-        setAdminLoggedIn(false);
-        adminUnlockedThreshold = false;
-
-        if (lastThresholdValue !== null) setThresholdValue(lastThresholdValue);
-
-        applyAdminUiState();
-        appendStatus("Admin logged out.");
-        return;
-      }
-
-      const ok = await requireAdmin("Admin access");
-      if (!ok) return;
-
-      setAdminLoggedIn(true);
-      applyAdminUiState();
-      appendStatus("Admin logged in ✅");
-    });
-  }
-
-  window.addEventListener("resize", () => requestAnimationFrame(resizeOverlayToVideo));
-  ui.video.addEventListener("loadedmetadata", () =>
-    requestAnimationFrame(resizeOverlayToVideo)
-  );
-
-  // Optional: if you switch tabs, pause scanning and resume
-  document.addEventListener("visibilitychange", () => {
-    if (!PERF.PAUSE_WHEN_HIDDEN) return;
-
-    // auto also pauses via shouldAutoCheckInNow()
-    if (!stream) return;
-
-    if (document.hidden) {
-      if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
-    } else {
-      runLiveScanOnce();
+    if (ui.datePicker) {
+        ui.datePicker.addEventListener("change", () => {
+            renderLogs();
+            updateCheckButtonsState();
+            syncAutoCheckIn(); // ✅ auto check-in only if today + camera running
+        });
     }
-  });
 
-  gateThresholdEvents();
+    if (ui.btnEnroll) {
+        ui.btnEnroll.addEventListener("click", (e) => {
+            e.preventDefault();
+            enroll().catch((err) =>
+                appendStatus(`Enroll error: ${err?.message || err}`)
+            );
+        });
+    }
+
+    // ✅ Manual check-in still available (optional)
+    if (ui.btnCheckIn) {
+        ui.btnCheckIn.addEventListener("click", () => {
+            unlockSpeech();
+            attendance("check-in", { auto: false }).catch((e) =>
+                appendStatus(`Check-in error: ${e?.message || e}`)
+            );
+        });
+    }
+
+    // ✅ Check-out must be CLICKED (manual)
+    if (ui.btnCheckOut) {
+        ui.btnCheckOut.addEventListener("click", () => {
+            unlockSpeech();
+            attendance("check-out", { auto: false }).catch((e) =>
+                appendStatus(`Check-out error: ${e?.message || e}`)
+            );
+        });
+    }
+
+    if (ui.btnDownloadDay)
+        ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
+    if (ui.btnDownloadDayJson)
+        ui.btnDownloadDayJson.addEventListener("click", downloadDayJson);
+    if (ui.btnDownloadDayXlsx) {
+        ui.btnDownloadDayXlsx.addEventListener("click", () => {
+            downloadDayXlsx({ includePhotoDataUrl: false }).catch((e) =>
+                appendStatus(`XLSX export error: ${e?.message || e}`)
+            );
+        });
+    }
+
+    if (ui.btnClearDay) {
+        ui.btnClearDay.addEventListener("click", () =>
+            clearDay().catch((e) =>
+                appendStatus(`Clear-day error: ${e?.message || e}`)
+            )
+        );
+    }
+
+    if (ui.btnClearAll) {
+        ui.btnClearAll.addEventListener("click", () =>
+            clearAll().catch((e) =>
+                appendStatus(`Reset error: ${e?.message || e}`)
+            )
+        );
+    }
+
+    if (ui.btnChangePw) {
+        ui.btnChangePw.addEventListener("click", () => {
+            setOrChangePasswordFlow().catch((e) =>
+                appendStatus(`Password error: ${e?.message || e}`)
+            );
+        });
+    }
+
+    if (ui.btnExportProfiles)
+        ui.btnExportProfiles.addEventListener("click", exportProfiles);
+
+    if (ui.importProfiles) {
+        ui.importProfiles.addEventListener("change", (ev) => {
+            const file = ev.target.files?.[0];
+            if (!file) return;
+            importProfilesFromFile(file).catch((e) =>
+                appendStatus(`Import error: ${e?.message || e}`)
+            );
+            ev.target.value = "";
+        });
+    }
+
+    // ✅ Admin Access / Logout toggle
+    if (ui.btnAdminToggle) {
+        ui.btnAdminToggle.addEventListener("click", async () => {
+            if (isAdminLoggedIn()) {
+                setAdminLoggedIn(false);
+                adminUnlockedThreshold = false;
+
+                if (lastThresholdValue !== null)
+                    setThresholdValue(lastThresholdValue);
+
+                applyAdminUiState();
+                appendStatus("Admin logged out.");
+                return;
+            }
+
+            const ok = await requireAdmin("Admin access");
+            if (!ok) return;
+
+            setAdminLoggedIn(true);
+            applyAdminUiState();
+            appendStatus("Admin logged in ✅");
+        });
+    }
+
+    window.addEventListener("resize", () =>
+        requestAnimationFrame(resizeOverlayToVideo)
+    );
+    ui.video.addEventListener("loadedmetadata", () =>
+        requestAnimationFrame(resizeOverlayToVideo)
+    );
+
+    // Optional: if you switch tabs, pause scanning and resume
+    document.addEventListener("visibilitychange", () => {
+        if (!PERF.PAUSE_WHEN_HIDDEN) return;
+
+        // auto also pauses via shouldAutoCheckInNow()
+        if (!stream) return;
+
+        if (document.hidden) {
+            if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
+        } else {
+            runLiveScanOnce();
+        }
+    });
+
+    gateThresholdEvents();
 }
 
 // ---------------- Init ----------------
 (async function init() {
-  updateThresholdUI();
-  if (ui.threshold) lastThresholdValue = Number(ui.threshold.value);
+    updateThresholdUI();
+    if (ui.threshold) lastThresholdValue = Number(ui.threshold.value);
 
-  if (ui.datePicker) ui.datePicker.value = isoDateLocal();
+    if (ui.datePicker) ui.datePicker.value = isoDateLocal();
 
-  // clock
-  const tickClock = () => {
-    const d = now();
-    if (ui.tzLabel) {
-      ui.tzLabel.textContent = `Timezone: ${
-        Intl.DateTimeFormat().resolvedOptions().timeZone || "local"
-      }`;
+    // clock
+    const tickClock = () => {
+        const d = now();
+        if (ui.tzLabel) {
+            ui.tzLabel.textContent = `Timezone: ${
+                Intl.DateTimeFormat().resolvedOptions().timeZone || "local"
+            }`;
+        }
+        if (ui.nowLabel)
+            ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
+    };
+    tickClock();
+    setInterval(tickClock, 1000);
+
+    bindEvents();
+    applyAdminUiState(); // ✅ show/hide admin panel + button text on load
+    renderProfiles();
+    renderLogs();
+    updateCheckButtonsState();
+
+    try {
+        const ok = await waitForFaceApi();
+        if (!ok)
+            throw new Error(
+                "face-api.js did not load (timeout). Check script tag + network."
+            );
+
+        // ✅ bind module variable so all your functions can use `faceapi` safely
+        faceapi = window.faceapi;
+
+        await loadModels();
+
+        appendStatus(
+            "Ready. Start camera. When it detects 1 face, it will show the person's NAME on the box if registered."
+        );
+        appendStatus("If not registered, the box will say: Not registered.");
+        appendStatus(
+            "AUTO check-in runs every 2 seconds when 1 registered face is visible."
+        );
+        appendStatus("Check-out is MANUAL (must click the button).");
+        appendStatus(
+            "Check In/Out works ONLY on TODAY. You can still browse history by changing date."
+        );
+
+        appendStatus(
+            `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${
+                PERF.LIVE_SCAN_INTERVAL_MS
+            }ms, landmarks=${PERF.DRAW_LANDMARKS ? "ON" : "OFF"}`
+        );
+    } catch (e) {
+        setModelPill("error", "Model load failed");
+        setStatus(`Model load failed: ${e?.message || e}`);
+        appendStatus(`Model load failed: ${e?.message || e}`);
     }
-    if (ui.nowLabel)
-      ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
-  };
-  tickClock();
-  setInterval(tickClock, 1000);
-
-  bindEvents();
-  applyAdminUiState(); // ✅ show/hide admin panel + button text on load
-  renderProfiles();
-  renderLogs();
-  updateCheckButtonsState();
-
-  try {
-    await loadModels();
-    appendStatus(
-      "Ready. Start camera. When it detects 1 face, it will show the person's NAME on the box if registered."
-    );
-    appendStatus("If not registered, the box will say: Not registered.");
-    appendStatus(
-      "AUTO check-in runs every 2 seconds when 1 registered face is visible."
-    );
-    appendStatus("Check-out is MANUAL (must click the button).");
-    appendStatus(
-      "Check In/Out works ONLY on TODAY. You can still browse history by changing date."
-    );
-
-    appendStatus(
-      `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${PERF.LIVE_SCAN_INTERVAL_MS}ms, landmarks=${
-        PERF.DRAW_LANDMARKS ? "ON" : "OFF"
-      }`
-    );
-  } catch (e) {
-    setModelPill("error", "Model load failed");
-    setStatus(`Model load failed: ${e?.message || e}`);
-  }
 })();

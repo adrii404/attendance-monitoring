@@ -15,12 +15,12 @@ class AttendanceController extends Controller
     public function clock(Request $request)
     {
         $data = $request->validate([
-            'type' => ['required','in:in,out'],
-            'descriptor' => ['required','array','size:128'],
+            'type' => ['required', 'in:in,out'],
+            'descriptor' => ['required', 'array', 'size:128'],
             'descriptor.*' => ['numeric'],
-            'threshold' => ['nullable','numeric','min:0.2','max:1.0'],
-            'device_id' => ['nullable','string','max:255'],
-            'photo_data_url' => ['nullable','string'],
+            'threshold' => ['nullable', 'numeric', 'min:0.2', 'max:1.0'],
+            'device_id' => ['nullable', 'string', 'max:255'],
+            'photo_data_url' => ['nullable', 'string'],
         ]);
 
         $threshold = (float)($data['threshold'] ?? 0.45);
@@ -74,7 +74,7 @@ class AttendanceController extends Controller
         $profiles = FaceProfile::query()
             ->where('is_active', true)
             ->with('user:id,name')
-            ->get(['user_id','descriptor']);
+            ->get(['user_id', 'descriptor']);
 
         $best = null;
 
@@ -83,7 +83,7 @@ class AttendanceController extends Controller
             if ($d <= $threshold && ($best === null || $d < $best['distance'])) {
                 $best = [
                     'user_id' => $p->user_id,
-                    'name' => $p->user?->name ?? ('User '.$p->user_id),
+                    'name' => $p->user?->name ?? ('User ' . $p->user_id),
                     'distance' => $d,
                 ];
             }
@@ -115,7 +115,7 @@ class AttendanceController extends Controller
         $bin = base64_decode($b64, true);
         if ($bin === false) return null;
 
-        $path = 'attendance_photos/'.date('Y/m/d').'/u'.$userId.'_'.uniqid().'.jpg';
+        $path = 'attendance_photos/' . date('Y/m/d') . '/u' . $userId . '_' . uniqid() . '.jpg';
         Storage::disk('local')->put($path, $bin);
 
         return $path;
@@ -133,10 +133,24 @@ class AttendanceController extends Controller
         $end   = (clone $start)->endOfDay();
 
         $logs = AttendanceLog::query()
-            ->with('user:id,name,contact_number')
-            ->whereBetween('occurred_at', [$start, $end])
-            ->orderBy('occurred_at')
-            ->get(['id','user_id','type','occurred_at','photo_path','device_id','meta']);
+            ->leftJoin('users', 'attendance_logs.user_id', '=', 'users.id')
+            ->leftJoin('roles', 'users.role_id', '=', 'roles.id')
+            ->whereBetween('attendance_logs.occurred_at', [$start, $end])
+            ->orderBy('attendance_logs.occurred_at')
+            ->get([
+                'attendance_logs.id',
+                'attendance_logs.user_id',
+                'attendance_logs.type',
+                'attendance_logs.occurred_at',
+                'attendance_logs.photo_path',
+                'attendance_logs.device_id',
+                'attendance_logs.meta',
+
+                'users.name as name',
+                'users.contact_number as contact_number',
+                'users.role_id as role_id',
+                'roles.name as role_name',
+            ]);
 
         return response()->json([
             'success' => true,
@@ -144,10 +158,15 @@ class AttendanceController extends Controller
             'logs' => $logs->map(fn($l) => [
                 'id' => $l->id,
                 'user_id' => $l->user_id,
-                'name' => $l->user?->name,
-                'contact_number' => $l->user?->contact_number,
+
+                'name' => $l->name,
+                'contact_number' => $l->contact_number,
+
+                // ✅ this is what your XLSX mapper will pick up
+                'role_name' => $l->role_name,
+
                 'type' => $l->type,
-                'occurred_at' => $l->occurred_at?->toISOString(),
+                'occurred_at' => optional($l->occurred_at)->toISOString(),
                 'photo_path' => $l->photo_path,
                 'device_id' => $l->device_id,
                 'meta' => $l->meta,
