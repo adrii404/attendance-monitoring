@@ -30,7 +30,6 @@
 
                     <div>
                         <div class="text-lg font-semibold leading-tight">Face Attendance</div>
-                        <div class="text-xs text-slate-300">Frontend-only • Tailwind UI • localStorage</div>
                     </div>
                 </div>
 
@@ -57,7 +56,7 @@
 
                                 <div class="mt-2 flex items-center gap-2">
                                     <input id="datePicker" type="date" class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60">
-                                    <button id="btnToday" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Today</button>
+                                    <button id="btnToday" type="button"  class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Today</button>
                                 </div>
 
                                 <div class="mt-2 flex items-center justify-between text-[11px] text-slate-400">
@@ -92,19 +91,27 @@
                                     <input id="enrollName" type="text" placeholder="e.g., Juan Dela Cruz"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
         
-                                    <input id="enrollEmail" type="email" placeholder="Email"
+                                    <input id="enrollContact" type="tel" placeholder="Contact Number"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
         
                                     <input id="enrollPassword" type="password" placeholder="Password"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+
+                                        <select id="enrollRole" class="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-slate-100">
+                                                <option value="">Select role</option>
+                                                <option value="1">ADMIN</option>
+                                                <option value="2">IT</option>
+                                                <option value="3">CSR</option>
+                                                <option value="4">TECHNICAL</option>
+                                        </select>
         
                                     <div class="flex flex-wrap items-center gap-2 pt-1">
-                                        <button id="btnEnroll" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
+                                        <button id="btnEnroll" type="button" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
                                             Capture & Save
                                         </button>
         
-                                        <button id="btnExportProfiles" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">
-                                            Export profiles (JSON)
+                                        <button id="btnExportProfiles" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">
+                                            E   
                                         </button>
         
                                         <label class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 cursor-pointer">
@@ -134,8 +141,8 @@
                                     </div>
     
                                     <div class="flex items-center gap-2">
-                                        <button id="btnChangePw" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">Set/Change password</button>
-                                        <button id="btnClearAll" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">Reset local data</button>
+                                        <button id="btnChangePw" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">Set/Change password</button>
+                                        <button id="btnClearAll" type="button" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">Reset local data</button>
                                     </div>
                                 </div>
     
@@ -147,13 +154,13 @@
                                 ></pre>
                             </div>
                             <div class="mt-3 flex flex-wrap items-center gap-2">
-                                <button id="btnDownloadDay" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download CSV (selected day)</button>
-                                <button id="btnDownloadDayJson" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download JSON + Photos</button>
-                                <button id="btnClearDay" class="rounded-xl bg-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/30">Clear selected day</button>
+                                <button id="btnDownloadDay" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download CSV (selected day)</button>
+                                <button id="btnDownloadDayJson" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download JSON + Photos</button>
+                                <button id="btnClearDay" type="button" class="rounded-xl bg-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/30">Clear selected day</button>
                             </div>
                         </div>
                         <div class="mt-4 flex justify-end">
-                            <button id="btnAdminToggle" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 cursor-pointer">Admin Access</button>
+                            <button id="btnAdminToggle" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 cursor-pointer">Admin Access</button>
                         </div>
                     </div>
                 </section>
@@ -167,9 +174,9 @@
                             </div>
 
                             <div class="flex flex-wrap items-center gap-2">
-                                <button id="btnStart" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">Start</button>
-                                <button id="btnStop" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Stop</button>
-                                <button id="btnFlip" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Flip</button>
+                                <button id="btnStart" type="button" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">Start</button>
+                                <button id="btnStop" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Stop</button>
+                                <button id="btnFlip" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Flip</button>
                             </div>
                         </div>
 
@@ -193,8 +200,8 @@
                                 </div>
 
                                 <div class="mt-3 grid gap-2 lg:grid-cols-2">
-                                    <button id="btnCheckIn" class="rounded-2xl bg-sky-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">Check In</button>
-                                    <button id="btnCheckOut" class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300">Check Out</button>
+                                    <button id="btnCheckIn" type="button" class="rounded-2xl bg-sky-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">Check In</button>
+                                    <button id="btnCheckOut" type="button" class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300 ">Check Out</button>
                                 </div>
                             </div>
                         </div>

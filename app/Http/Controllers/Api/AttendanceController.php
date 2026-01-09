@@ -133,7 +133,7 @@ class AttendanceController extends Controller
         $end   = (clone $start)->endOfDay();
 
         $logs = AttendanceLog::query()
-            ->with('user:id,name,email')
+            ->with('user:id,name,contact_number')
             ->whereBetween('occurred_at', [$start, $end])
             ->orderBy('occurred_at')
             ->get(['id','user_id','type','occurred_at','photo_path','device_id','meta']);
@@ -145,7 +145,7 @@ class AttendanceController extends Controller
                 'id' => $l->id,
                 'user_id' => $l->user_id,
                 'name' => $l->user?->name,
-                'email' => $l->user?->email,
+                'contact_number' => $l->user?->contact_number,
                 'type' => $l->type,
                 'occurred_at' => $l->occurred_at?->toISOString(),
                 'photo_path' => $l->photo_path,
