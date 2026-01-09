@@ -1,4 +1,6 @@
 import "./bootstrap";
+import ExcelJS from "exceljs";
+import { saveAs } from "file-saver";
 
 /* app.js (FULL) — CPU/Lite version (no GPU, 16GB RAM friendly)
  * ✅ LIVE name while detecting:
@@ -69,6 +71,9 @@ const ui = {
   btnDownloadDayJson: el("btnDownloadDayJson"),
   btnClearDay: el("btnClearDay"),
 
+  // ✅ NEW: Excel export button
+  btnDownloadDayXlsx: el("btnDownloadDayXlsx"),
+
   logsTbody: el("logsTbody"),
   logsCount: el("logsCount"),
 
@@ -96,12 +101,6 @@ const ui = {
   pwModalCancel: el("pwModalCancel"),
   pwModalOk: el("pwModalOk"),
 
-  // toastWrap: el("toastWrap"),
-  // toastPhoto: el("toastPhoto"),
-  // toastName: el("toastName"),
-  // toastDate: el("toastDate"),
-  // toastTime: el("toastTime"),
-  // toastAction: el("toastAction"),
   toastList: el("toastList"),
 };
 
@@ -772,7 +771,6 @@ function drawResultsWithLabels(results, labels, opts = {}) {
   }
 }
 
-
 async function getSingleDescriptorStrict() {
   if (!ui.video) return { descriptor: null, reason: "none", count: 0 };
 
@@ -821,7 +819,6 @@ function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
 }
 
 // ✅ Live scan (throttled by setInterval) to show name while camera runs
-// ✅ Live scan (throttled by setInterval) to show name while camera runs
 async function runLiveScanOnce() {
   if (!stream || !modelsReady || !ui.video) return;
   if (scanInProgress) return;
@@ -847,8 +844,7 @@ async function runLiveScanOnce() {
 
     const GREEN = "green";
     const BLUE = "blue";
-    const RED   = "red";
-
+    const RED = "red";
 
     if (count === 0) {
       clearOverlay();
@@ -954,7 +950,6 @@ async function runLiveScanOnce() {
   }
 }
 
-
 // ---------------- Live loop control (CPU-friendly) ----------------
 function startLiveLoop() {
   if (liveTimer) return;
@@ -1002,8 +997,6 @@ function startAutoCheckIn() {
     try {
       // ✅ AUTO = check-in only
       await attendance("check-in", { auto: true });
-
-      
     } finally {
       autoCheckInInFlight = false;
     }
@@ -1086,7 +1079,6 @@ function stopCamera() {
 
   liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
 }
-
 
 async function flipCamera() {
   facingMode = facingMode === "user" ? "environment" : "user";
@@ -1591,6 +1583,101 @@ function downloadDayJson() {
   downloadText(`attendance_${dateStr}.json`, JSON.stringify(logs, null, 2));
 }
 
+// ---------------- ✅ Excel export (XLSX with embedded photo) ----------------
+function parseImageDataUrl(dataUrl) {
+  const s = String(dataUrl || "");
+  const m = s.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+  if (!m) return null;
+
+  let ext = (m[1] || "").toLowerCase();
+  if (ext === "jpg") ext = "jpeg";
+  return { extension: ext, base64: m[2] };
+}
+
+async function downloadDayXlsx() {
+  const dateStr = ui.datePicker?.value || isoDateLocal();
+
+  // ✅ Use your UI summary (one row per person per day)
+  const rows = buildDaySummary(dateStr);
+
+  if (!rows.length) {
+    appendStatus(`Excel: No logs for ${dateStr}.`);
+    return;
+  }
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Face Attendance";
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet(`Logs ${dateStr}`);
+
+  ws.columns = [
+    { header: "Name", key: "name", width: 28 },
+    { header: "Time In", key: "time_in", width: 14 },
+    { header: "Time Out", key: "time_out", width: 14 },
+    { header: "Photo", key: "photo", width: 16 },
+  ];
+
+  // Header style
+  ws.getRow(1).font = { bold: true };
+  ws.getRow(1).alignment = { vertical: "middle", horizontal: "left" };
+  ws.getRow(1).height = 18;
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const excelRowNumber = i + 2;
+
+    const photo = r.photo_in || r.photo_out || null;
+
+    ws.addRow({
+      name: r.name || "",
+      time_in: r.time_in || "",
+      time_out: r.time_out || "",
+      photo: "", // image will be drawn here
+    });
+
+    // Make row taller for image
+    const row = ws.getRow(excelRowNumber);
+    row.height = 52;
+    row.alignment = { vertical: "middle" };
+
+    const img = parseImageDataUrl(photo);
+    if (img) {
+      const imageId = wb.addImage({
+        base64: img.base64,
+        extension: img.extension, // png | jpeg
+      });
+
+      // Put image in column D (Photo)
+      // ExcelJS uses 0-based col/row in positioning
+      ws.addImage(imageId, {
+        tl: { col: 3, row: excelRowNumber - 1 }, // D column
+        ext: { width: 72, height: 48 },
+      });
+    }
+  }
+
+  // Borders
+  ws.eachRow((row) => {
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
+      };
+    });
+  });
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+
+  saveAs(blob, `attendance_${dateStr}.xlsx`);
+  appendStatus(`Excel exported ✅ attendance_${dateStr}.xlsx`);
+}
+
 async function clearDay() {
   const ok = await requireAdmin("Clear logs for selected day");
   if (!ok) return;
@@ -1702,7 +1789,6 @@ function bindEvents() {
       enroll().catch((err) => appendStatus(`Enroll error: ${err?.message || err}`));
     });
   }
-  
 
   // ✅ Manual check-in still available (optional)
   if (ui.btnCheckIn) {
@@ -1725,6 +1811,16 @@ function bindEvents() {
   }
 
   if (ui.btnDownloadDay) ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
+
+  // ✅ NEW: Excel export
+  if (ui.btnDownloadDayXlsx) {
+    ui.btnDownloadDayXlsx.addEventListener("click", () => {
+      downloadDayXlsx().catch((e) =>
+        appendStatus(`Excel export error: ${e?.message || e}`)
+      );
+    });
+  }
+
   if (ui.btnDownloadDayJson)
     ui.btnDownloadDayJson.addEventListener("click", downloadDayJson);
 
