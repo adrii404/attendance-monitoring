@@ -17,9 +17,17 @@ import "./bootstrap";
  * ✅ NEW RULE:
  * - AUTO CAPTURE for CHECK-IN only (every 2 seconds) when 1 registered face is seen
  * - CHECK-OUT must be clicked via button (manual)
+ *
+ * ✅ ADMIN ROSTER:
+ * - When admin logs in, show ALL registered people list
+ * - Beside name: dropdown status (Present, Absent, Half day, Day off)
+ * - Saved per selected date in localStorage
+ *
+ * ✅ EXCEL EXPORT:
+ * - Single .xlsx file (same as before)
+ * - Sort rows by ROLE then NAME (both Summary + Raw Logs)
  */
 
-// ✅ More stable weights host + matches your <script src="unpkg...face-api.min.js">
 // ✅ Try local first (best), then CDN fallbacks
 const MODEL_BASES = [
     "/faceapi/weights", // ✅ put weights here: public/faceapi/weights/*
@@ -28,13 +36,15 @@ const MODEL_BASES = [
 ];
 
 // ✅ IMPORTANT: app.js is a Vite module, so global window.faceapi is NOT in scope.
-// We declare a module variable and assign it after face-api is available.
 let faceapi = null;
 
 const STORAGE_PROFILES = "fb_attendance_profiles_v1"; // legacy fallback
 const STORAGE_LOGS = "fb_attendance_logs_v1"; // UI-only quick view (DB is the truth)
 const STORAGE_ADMIN_HASH = "fb_attendance_admin_pw_hash_v1";
 const STORAGE_ADMIN_SESSION = "fb_attendance_admin_session_v1";
+
+// ✅ Admin roster statuses (per date)
+const STORAGE_ADMIN_ROSTER_STATUS = "fb_attendance_roster_status_v1";
 
 const el = (id) => document.getElementById(id);
 
@@ -45,6 +55,18 @@ function escapeHtml(str) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function pickRoleName(p) {
+    return (
+        p?.role_name ||
+        p?.role?.name ||
+        p?.user?.role_name ||
+        p?.user?.role?.name ||
+        p?.user_role ||
+        p?.role_text ||
+        ""
+    );
 }
 
 const ui = {
@@ -107,49 +129,38 @@ const ui = {
     pwModalCancel: el("pwModalCancel"),
     pwModalOk: el("pwModalOk"),
 
-    // toastWrap: el("toastWrap"),
-    // toastPhoto: el("toastPhoto"),
-    // toastName: el("toastName"),
-    // toastDate: el("toastDate"),
-    // toastTime: el("toastTime"),
-    // toastAction: el("toastAction"),
     toastList: el("toastList"),
+
+    // ✅ Admin roster UI (must exist in HTML)
+    adminRosterList: el("adminRosterList"),
+    rosterCount: el("rosterCount"),
+    rosterDateLabel: el("rosterDateLabel"),
 };
 
 // ---------------- Lite/Performance knobs ----------------
 const PERF = {
-    // Live scanning: lower = faster/less accurate, higher = slower/more accurate
     LIVE_INPUT_SIZE: 160,
     LIVE_SCORE_THRESHOLD: 0.5,
     LIVE_SCAN_INTERVAL_MS: 650,
 
-    // Action scans (button clicks): more accurate than live, still not too heavy
     ACTION_INPUT_SIZE: 224,
     ACTION_SCORE_THRESHOLD: 0.5,
 
-    // ✅ Auto check-in: tries every 2 seconds (only when 1 registered face is seen)
     AUTO_CHECKIN_INTERVAL_MS: 2000,
-
-    // ✅ Prevent spamming same person while they stand still
     AUTO_CHECKIN_SAME_USER_COOLDOWN_MS: 8000,
 
-    // Major CPU saver: drawing landmarks is expensive
     DRAW_LANDMARKS: false,
 
-    // Lower camera decode cost
     CAMERA_IDEAL_WIDTH: 640,
     CAMERA_IDEAL_HEIGHT: 480,
 
-    // Stored photos for logs (UI + backend)
     PHOTO_LOG_MAX_WIDTH: 420,
     PHOTO_LOG_QUALITY: 0.65,
 
-    // Pause scanning if tab hidden (saves CPU)
     PAUSE_WHEN_HIDDEN: true,
 };
 
 // ---------------- Voice (Text-to-Speech) ----------------
-// ✅ IMPORTANT: Some browsers require a user gesture first, so we "unlock" speech
 let voiceEnabled = true;
 let speechUnlocked = false;
 
@@ -169,7 +180,6 @@ function speak(text) {
     if (!voiceEnabled) return;
     if (!("speechSynthesis" in window)) return;
 
-    // avoid queued/overlapping speech
     window.speechSynthesis.cancel();
 
     const u = new SpeechSynthesisUtterance(text);
@@ -194,12 +204,7 @@ let lastServerMatchAt = 0;
 let lastServerMatchResult = { matched: false, user: null, distance: null };
 
 // ✅ Live single-face matched user (used by AUTO CHECK-IN)
-let liveSingle = {
-    matched: false,
-    userId: null,
-    name: null,
-    updatedAt: 0,
-};
+let liveSingle = { matched: false, userId: null, name: null, updatedAt: 0 };
 
 // ✅ Auto check-in control
 let autoCheckInTimer = null;
@@ -211,8 +216,6 @@ let scanProgressUserId = null;
 let scanProgressStartAt = 0;
 let scanProgressPct = 0;
 let scanSuccessFlashUntil = 0;
-
-let toastTimer = null;
 
 function resetScanProgress() {
     scanProgressUserId = null;
@@ -248,30 +251,23 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
       <p><span class="font-bold">Time: </span>${escapeHtml(time || "—")}</p>
       <p>
         <span class="font-bold">Action:</span>
-        <span class="${actionClass} font-semibold">${escapeHtml(
-        action || "—"
-    )}</span>
+        <span class="${actionClass} font-semibold">${escapeHtml(action || "—")}</span>
       </p>
     </div>
   `;
 
-    // ✅ newest on top
     ui.toastList.prepend(wrap);
 
-    // fade in (next tick)
     requestAnimationFrame(() => {
         wrap.classList.remove("opacity-0");
         wrap.classList.add("opacity-100");
     });
 
-    // fade out after 3s, then remove from DOM
     setTimeout(() => {
         wrap.classList.remove("opacity-100");
         wrap.classList.add("opacity-0");
 
-        setTimeout(() => {
-            wrap.remove();
-        }, 520);
+        setTimeout(() => wrap.remove(), 520);
     }, 3000);
 }
 
@@ -291,9 +287,7 @@ async function safeFetchJson(url, options = {}) {
         let data = null;
         try {
             data = await res.json();
-        } catch (_) {
-            // ignore non-json
-        }
+        } catch (_) {}
 
         return { ok: res.ok, status: res.status, data };
     } catch (e) {
@@ -304,10 +298,7 @@ async function safeFetchJson(url, options = {}) {
 async function serverMatchDescriptor(descriptor, threshold) {
     const nowMs = Date.now();
 
-    // If a request is already in-flight, reuse the last result
     if (serverMatchInFlight) return lastServerMatchResult;
-
-    // Throttle calls
     if (nowMs - lastServerMatchAt < SERVER_MATCH_MIN_INTERVAL_MS)
         return lastServerMatchResult;
 
@@ -325,11 +316,7 @@ async function serverMatchDescriptor(descriptor, threshold) {
         });
 
         if (!r.ok || !r.data) {
-            lastServerMatchResult = {
-                matched: false,
-                user: null,
-                distance: null,
-            };
+            lastServerMatchResult = { matched: false, user: null, distance: null };
             return lastServerMatchResult;
         }
 
@@ -345,7 +332,7 @@ async function serverMatchDescriptor(descriptor, threshold) {
 }
 
 let stream = null;
-let facingMode = "user"; // or "environment"
+let facingMode = "user";
 let modelsReady = false;
 
 let scanInProgress = false;
@@ -394,7 +381,6 @@ function setModelPill(state, label) {
 
     ui.modelStatusText.textContent = label || "";
 
-    // state: "loading" | "ready" | "error"
     ui.statusDot.className =
         "inline-block h-2 w-2 rounded-full " +
         (state === "ready"
@@ -432,7 +418,6 @@ function safeSetLocalStorage(key, value) {
     }
 }
 
-// ✅ today-only helper
 function isSelectedDateToday() {
     const selected = ui.datePicker?.value || isoDateLocal();
     return selected === isoDateLocal();
@@ -459,20 +444,14 @@ function updateCheckButtonsState() {
         : `${baseOff} bg-white/10`;
 }
 
-// ---------------- Masked password modal (replaces prompt) ----------------
+// ---------------- Masked password modal ----------------
 function promptPasswordModal({
     title = "Admin password",
     desc = "Enter password",
     placeholder = "Password",
 } = {}) {
     return new Promise((resolve) => {
-        // Fallback if modal not in DOM (won't be masked)
-        if (
-            !ui.pwModal ||
-            !ui.pwModalInput ||
-            !ui.pwModalOk ||
-            !ui.pwModalCancel
-        ) {
+        if (!ui.pwModal || !ui.pwModalInput || !ui.pwModalOk || !ui.pwModalCancel) {
             const pw = prompt(desc);
             resolve(pw === null ? null : String(pw));
             return;
@@ -488,7 +467,6 @@ function promptPasswordModal({
         ui.pwModal.classList.remove("hidden");
         ui.pwModal.classList.add("flex");
 
-        // Focus next tick
         setTimeout(() => ui.pwModalInput.focus(), 0);
 
         const cleanup = () => {
@@ -600,7 +578,7 @@ async function requireAdmin(actionLabel = "this action") {
     return true;
 }
 
-// ---------------- Admin session toggle (show/hide panel) ----------------
+// ---------------- Admin session toggle ----------------
 function isAdminLoggedIn() {
     return localStorage.getItem(STORAGE_ADMIN_SESSION) === "1";
 }
@@ -613,15 +591,20 @@ function applyAdminUiState() {
     const on = isAdminLoggedIn();
 
     if (ui.adminPanel) ui.adminPanel.classList.toggle("hidden", !on);
-    if (ui.btnAdminToggle)
-        ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
+    if (ui.btnAdminToggle) ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
 
-    // threshold can be interacted with immediately while admin is logged in
     adminUnlockedThreshold = on;
 
-    // When logging out, snap slider back to last known value (optional safety)
     if (!on && lastThresholdValue !== null) {
         setThresholdValue(lastThresholdValue);
+    }
+
+    // ✅ refresh roster list whenever admin logs in/out
+    if (on) renderAdminRoster().catch(() => {});
+    else {
+        if (ui.adminRosterList) ui.adminRosterList.innerHTML = "";
+        if (ui.rosterCount) ui.rosterCount.textContent = "0";
+        if (ui.rosterDateLabel) ui.rosterDateLabel.textContent = "—";
     }
 }
 
@@ -642,10 +625,7 @@ function getProfiles() {
 
 function saveProfiles(profiles) {
     const r = safeSetLocalStorage(STORAGE_PROFILES, JSON.stringify(profiles));
-    if (!r.ok)
-        appendStatus(
-            "Storage warning: Failed to save profiles (quota/storage error)."
-        );
+    if (!r.ok) appendStatus("Storage warning: Failed to save profiles (quota/storage error).");
 }
 
 // ---------------- Logs (UI-only quick view; DB is the truth) ----------------
@@ -657,16 +637,24 @@ function getLogs() {
 
 function saveLogs(logs) {
     const r = safeSetLocalStorage(STORAGE_LOGS, JSON.stringify(logs));
-    if (!r.ok)
-        appendStatus(
-            "Storage warning: Failed to save logs (quota/storage error)."
-        );
+    if (!r.ok) appendStatus("Storage warning: Failed to save logs (quota/storage error).");
 }
 
 function getLogsForDate(dateStr) {
     const logs = getLogs();
     const arr = logs[dateStr];
     return Array.isArray(arr) ? arr : [];
+}
+
+// ✅ add one log row to UI cache
+function addLog(dateStr, row) {
+    const logs = getLogs();
+    if (!Array.isArray(logs[dateStr])) logs[dateStr] = [];
+    logs[dateStr].push({
+        ...row,
+        occurred_at: row?.occurred_at || `${dateStr} ${row?.time || ""}`,
+    });
+    saveLogs(logs);
 }
 
 // ✅ one row per person per day summary
@@ -730,17 +718,13 @@ function joinBase(base, file) {
 }
 
 async function testModelBase(base) {
-    // One small file that must exist for tinyFaceDetector
     const testFile = "tiny_face_detector_model-weights_manifest.json";
     const url = joinBase(base, testFile);
 
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok)
-        throw new Error(
-            `Model test failed: ${res.status} ${res.statusText} @ ${url}`
-        );
+        throw new Error(`Model test failed: ${res.status} ${res.statusText} @ ${url}`);
 
-    // ensure it's valid JSON
     await res.json();
     return base;
 }
@@ -765,8 +749,7 @@ async function pickWorkingModelBase() {
 
 // ---------------- Face API setup ----------------
 async function loadModels() {
-    if (!faceapi)
-        throw new Error("face-api.js not loaded (window.faceapi missing)");
+    if (!faceapi) throw new Error("face-api.js not loaded (window.faceapi missing)");
 
     setModelPill("loading", "Loading models…");
     appendStatus("Loading face-api models…");
@@ -778,10 +761,7 @@ async function loadModels() {
         await faceapi.nets.faceLandmark68Net.loadFromUri(base);
         await faceapi.nets.faceRecognitionNet.loadFromUri(base);
     } catch (e) {
-        // Add extra context
-        throw new Error(
-            `Model download/load failed from "${base}": ${e?.message || e}`
-        );
+        throw new Error(`Model download/load failed from "${base}": ${e?.message || e}`);
     }
 
     modelsReady = true;
@@ -796,11 +776,9 @@ function resizeOverlayToVideo() {
     const w = Math.max(1, Math.round(rect.width));
     const h = Math.max(1, Math.round(rect.height));
 
-    // Canvas internal resolution matches displayed pixels
     ui.overlay.width = w;
     ui.overlay.height = h;
 
-    // Make sure canvas element visually matches too
     ui.overlay.style.width = w + "px";
     ui.overlay.style.height = h + "px";
 }
@@ -821,7 +799,7 @@ function drawResultsWithLabels(results, labels, opts = {}) {
     faceapi.matchDimensions(ui.overlay, displaySize);
     const resized = faceapi.resizeResults(results, displaySize);
 
-    const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)"; // default blue
+    const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)";
 
     for (let i = 0; i < resized.length; i++) {
         const box = resized[i].detection.box;
@@ -894,12 +872,10 @@ function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
     }
 }
 
-// ✅ Live scan (throttled by setInterval) to show name while camera runs
-// ✅ Live scan (throttled by setInterval) to show name while camera runs
+// ✅ Live scan
 async function runLiveScanOnce() {
     if (!stream || !modelsReady || !ui.video) return;
     if (scanInProgress) return;
-
     if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return;
 
     scanInProgress = true;
@@ -926,14 +902,7 @@ async function runLiveScanOnce() {
         if (count === 0) {
             clearOverlay();
             if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
-            liveSingle = {
-                matched: false,
-                userId: null,
-                name: null,
-                updatedAt: nowMs,
-            };
-
-            // ✅ reset progress if no face
+            liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
             resetScanProgress();
             return;
         }
@@ -943,16 +912,8 @@ async function runLiveScanOnce() {
         if (count > 1) {
             for (let i = 0; i < count; i++) labels[i] = "Multiple faces";
             drawResultsWithLabels(results, labels, { strokeStyle: RED });
-            if (ui.liveDetectedName)
-                ui.liveDetectedName.textContent = "Multiple faces";
-            liveSingle = {
-                matched: false,
-                userId: null,
-                name: null,
-                updatedAt: nowMs,
-            };
-
-            // ✅ reset progress if multiple faces
+            if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Multiple faces";
+            liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
             resetScanProgress();
             return;
         }
@@ -963,27 +924,17 @@ async function runLiveScanOnce() {
         if (!d) {
             labels[0] = "Face detected";
             drawResultsWithLabels(results, labels, { strokeStyle: BLUE });
-            if (ui.liveDetectedName)
-                ui.liveDetectedName.textContent = "Face detected";
-            liveSingle = {
-                matched: false,
-                userId: null,
-                name: null,
-                updatedAt: nowMs,
-            };
-
-            // ✅ reset progress if no descriptor
+            if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Face detected";
+            liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
             resetScanProgress();
             return;
         }
 
-        // ✅ DB-driven match via Laravel (face_profiles table)
         const resp = await serverMatchDescriptor(d, threshold);
 
         if (resp.matched && resp.user?.name) {
             const uid = resp.user?.id ?? null;
 
-            // ✅ progress: reset if user changed
             if (!uid) {
                 resetScanProgress();
             } else if (scanProgressUserId !== uid) {
@@ -994,26 +945,16 @@ async function runLiveScanOnce() {
                 scanProgressStartAt = nowMs;
             }
 
-            // ✅ compute 0–100% over the auto interval (2 seconds)
             if (scanProgressStartAt) {
                 const elapsed = nowMs - scanProgressStartAt;
                 scanProgressPct = Math.max(
                     0,
-                    Math.min(
-                        100,
-                        Math.round(
-                            (elapsed / PERF.AUTO_CHECKIN_INTERVAL_MS) * 100
-                        )
-                    )
+                    Math.min(100, Math.round((elapsed / PERF.AUTO_CHECKIN_INTERVAL_MS) * 100))
                 );
             } else {
                 scanProgressPct = 0;
             }
 
-            // ✅ Decide color:
-            // - default scanning is BLUE
-            // - when progress hits 100% -> GREEN
-            // - after successful clock-in -> GREEN flash for a bit
             const isFlashGreen = nowMs < scanSuccessFlashUntil;
             const isReadyGreen = scanProgressPct >= 100;
             const strokeStyle = isFlashGreen || isReadyGreen ? GREEN : BLUE;
@@ -1021,47 +962,29 @@ async function runLiveScanOnce() {
             const labelText = `${resp.user.name} ${scanProgressPct}%`;
             labels[0] = labelText;
 
-            if (ui.liveDetectedName)
-                ui.liveDetectedName.textContent = labelText;
+            if (ui.liveDetectedName) ui.liveDetectedName.textContent = labelText;
 
-            liveSingle = {
-                matched: true,
-                userId: uid,
-                name: resp.user.name,
-                updatedAt: nowMs,
-            };
+            liveSingle = { matched: true, userId: uid, name: resp.user.name, updatedAt: nowMs };
 
             drawResultsWithLabels(results, labels, { strokeStyle });
         } else {
             labels[0] = "Not registered";
-            if (ui.liveDetectedName)
-                ui.liveDetectedName.textContent = "Not registered";
+            if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Not registered";
 
-            liveSingle = {
-                matched: false,
-                userId: null,
-                name: null,
-                updatedAt: nowMs,
-            };
-
-            // ✅ reset progress if not registered
+            liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
             resetScanProgress();
-
             drawResultsWithLabels(results, labels, { strokeStyle: RED });
         }
     } catch {
-        // ignore live scan errors
     } finally {
         scanInProgress = false;
     }
 }
 
-// ---------------- Live loop control (CPU-friendly) ----------------
+// ---------------- Live loop control ----------------
 function startLiveLoop() {
     if (liveTimer) return;
-    liveTimer = setInterval(() => {
-        runLiveScanOnce();
-    }, PERF.LIVE_SCAN_INTERVAL_MS);
+    liveTimer = setInterval(() => runLiveScanOnce(), PERF.LIVE_SCAN_INTERVAL_MS);
 }
 
 function stopLiveLoop() {
@@ -1075,14 +998,10 @@ function shouldAutoCheckInNow() {
     if (!isSelectedDateToday()) return false;
     if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return false;
 
-    // must be exactly 1 registered face (set by live scan)
     if (!liveSingle.matched || !liveSingle.userId) return false;
-    // ✅ must reach 100% first
     if (scanProgressPct < 100) return false;
-    // prevent overlap
     if (attendanceInProgress || autoCheckInInFlight) return false;
 
-    // cooldown for same person standing in front
     const nowMs = Date.now();
     if (
         lastAutoCheckInUserId === liveSingle.userId &&
@@ -1101,7 +1020,6 @@ function startAutoCheckIn() {
 
         autoCheckInInFlight = true;
         try {
-            // ✅ AUTO = check-in only
             await attendance("check-in", { auto: true });
         } finally {
             autoCheckInInFlight = false;
@@ -1116,7 +1034,6 @@ function stopAutoCheckIn() {
     autoCheckInInFlight = false;
 }
 
-// keep auto check-in in sync with camera/date
 function syncAutoCheckIn() {
     if (stream && isSelectedDateToday()) startAutoCheckIn();
     else stopAutoCheckIn();
@@ -1127,13 +1044,10 @@ async function startCamera() {
     if (stream) return;
     if (!ui.video) return;
 
-    // starting camera is a user gesture -> try unlock speech here too
     unlockSpeech();
 
     if (!navigator.mediaDevices?.getUserMedia) {
-        setStatus(
-            "Your browser does not support camera access (getUserMedia)."
-        );
+        setStatus("Your browser does not support camera access (getUserMedia).");
         return;
     }
 
@@ -1155,8 +1069,6 @@ async function startCamera() {
 
         appendStatus(`Camera started ✅ (facingMode: ${facingMode})`);
         startLiveLoop();
-
-        // ✅ AUTO CHECK-IN only
         syncAutoCheckIn();
     } catch (e) {
         stream = null;
@@ -1170,10 +1082,8 @@ function stopCamera() {
     resetScanProgress();
     scanSuccessFlashUntil = 0;
 
-    // ✅ stop auto check-in + live loop
     stopAutoCheckIn();
     stopLiveLoop();
-
     clearOverlay();
 
     const tracks = stream.getTracks();
@@ -1185,12 +1095,7 @@ function stopCamera() {
     appendStatus("Camera stopped.");
     if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
 
-    liveSingle = {
-        matched: false,
-        userId: null,
-        name: null,
-        updatedAt: Date.now(),
-    };
+    liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
 }
 
 async function flipCamera() {
@@ -1203,16 +1108,214 @@ async function flipCamera() {
     await startCamera();
 }
 
+// ---------------- Robust profile parsing + normalization ----------------
+function extractProfilesArray(payload) {
+    // Accept many Laravel shapes:
+    // - [] (plain array)
+    // - { profiles: [] }
+    // - { data: [] }
+    // - { profiles: { data: [] } }  (pagination)
+    // - { data: { data: [] } }      (pagination)
+    if (!payload) return [];
+    if (Array.isArray(payload)) return payload;
+
+    if (Array.isArray(payload.profiles)) return payload.profiles;
+    if (Array.isArray(payload.data)) return payload.data;
+
+    if (payload.profiles && Array.isArray(payload.profiles.data)) return payload.profiles.data;
+    if (payload.data && Array.isArray(payload.data.data)) return payload.data.data;
+
+    return [];
+}
+
+function normalizeProfile(p) {
+    // supports multiple possible property names / nesting
+    const user_id = p?.user_id ?? p?.id ?? p?.user?.id ?? "";
+    const name = p?.name ?? p?.user_name ?? p?.user?.name ?? (user_id ? `User ${user_id}` : "");
+    const role =
+        p?.role_name ??
+        p?.role?.name ??
+        p?.user?.role_name ??
+        p?.user?.role?.name ??
+        "";
+
+    const key = user_id != null && String(user_id) !== "" ? String(user_id) : String(name || "");
+    return {
+        key,
+        user_id: user_id ?? "",
+        name: name || "",
+        role: role || "",
+        face_profile_id: p?.face_profile_id ?? p?.id ?? "",
+        _raw: p,
+    };
+}
+
+// ---------------- ADMIN ROSTER (Present/Absent/Half day/Day off) ----------------
+function getRosterStatusStore() {
+    const raw = localStorage.getItem(STORAGE_ADMIN_ROSTER_STATUS);
+    const obj = safeJsonParse(raw, {});
+    return obj && typeof obj === "object" ? obj : {};
+}
+
+function saveRosterStatusStore(store) {
+    safeSetLocalStorage(STORAGE_ADMIN_ROSTER_STATUS, JSON.stringify(store));
+}
+
+function getStatusFor(dateStr, userKey) {
+    const store = getRosterStatusStore();
+    return store?.[dateStr]?.[String(userKey)] || "present";
+}
+
+function setStatusFor(dateStr, userKey, status) {
+    const store = getRosterStatusStore();
+    if (!store[dateStr]) store[dateStr] = {};
+    store[dateStr][String(userKey)] = status || "present";
+    saveRosterStatusStore(store);
+}
+
+async function fetchAllRegisteredPeople() {
+    const server = await safeFetchJson("/api/face/profiles", { method: "GET" });
+
+    const list = server.ok ? extractProfilesArray(server.data) : [];
+    if (list.length) {
+        return {
+            people: list
+                .map(normalizeProfile)
+                .filter((x) => x.key && x.name)
+                .map((x) => ({
+                    key: x.key,
+                    user_id: x.user_id || "",
+                    name: x.name,
+                    role: x.role,
+                    source: "db",
+                })),
+            info: null,
+        };
+    }
+
+    const info =
+        server.status === 404
+            ? "Missing endpoint: GET /api/face/profiles (HTTP 404). Add this endpoint to show DB registered people."
+            : server.status
+            ? `Failed to load /api/face/profiles (HTTP ${server.status}).`
+            : "Failed to load /api/face/profiles (network error).";
+
+    // Fallback: legacy local profiles
+    const local = getProfiles();
+    return {
+        people: local
+            .map((p) => ({
+                key: String(p.id || p.name || ""),
+                user_id: "",
+                name: p.name || "Unknown",
+                role: p.role || p.role_name || "",
+                source: "local",
+            }))
+            .filter((x) => x.key && x.name),
+        info,
+    };
+}
+
+function roleSortKey(role) {
+    const r = String(role || "").trim().toUpperCase();
+    const order = { ADMIN: 1, IT: 2, CSR: 3, TECHNICAL: 4 };
+    return order[r] ?? 999;
+}
+
+async function renderAdminRoster() {
+    if (!ui.adminRosterList || !ui.rosterCount) return;
+
+    if (!isAdminLoggedIn()) {
+        ui.adminRosterList.innerHTML = "";
+        ui.rosterCount.textContent = "0";
+        if (ui.rosterDateLabel) ui.rosterDateLabel.textContent = "—";
+        return;
+    }
+
+    const dateStr = ui.datePicker?.value || isoDateLocal();
+    if (ui.rosterDateLabel) ui.rosterDateLabel.textContent = dateStr;
+
+    ui.adminRosterList.innerHTML = `<div class="text-xs text-slate-400">Loading…</div>`;
+
+    const { people, info } = await fetchAllRegisteredPeople();
+
+    people.sort((a, b) => {
+        const ra = roleSortKey(a.role);
+        const rb = roleSortKey(b.role);
+        if (ra !== rb) return ra - rb;
+        return (a.name || "").localeCompare(b.name || "");
+    });
+
+    ui.rosterCount.textContent = String(people.length);
+    ui.adminRosterList.innerHTML = "";
+
+    if (info) {
+        const note = document.createElement("div");
+        note.className =
+            "rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-200";
+        note.textContent = info;
+        ui.adminRosterList.appendChild(note);
+    }
+
+    if (!people.length) {
+        ui.adminRosterList.innerHTML += `<div class="text-xs text-slate-400">No registered people found.</div>`;
+        return;
+    }
+
+    for (const p of people) {
+        const userKey = p.key || p.name;
+        const current = getStatusFor(dateStr, userKey);
+
+        const row = document.createElement("div");
+        row.className =
+            "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3";
+
+        row.innerHTML = `
+            <div class="min-w-0">
+                <div class="text-sm font-semibold truncate">${escapeHtml(p.name)}</div>
+                <div class="text-[11px] text-slate-400 truncate">
+                    ${escapeHtml(p.role || "—")}
+                    <span class="text-slate-500">•</span>
+                    <span class="font-mono text-slate-500">${escapeHtml(p.source)}</span>
+                </div>
+            </div>
+
+            <div class="shrink-0">
+                <select
+                    data-roster-key="${escapeHtml(String(userKey))}"
+                    class="rounded-xl bg-black border border-white/10 px-3 py-2 text-xs text-slate-100"
+                >
+                    <option value="present">Set Status</option>
+                    <option value="absent">Absent</option>
+                    <option value="half_day">Half day</option>
+                    <option value="day_off">Day off</option>
+                </select>
+            </div>
+        `;
+
+        ui.adminRosterList.appendChild(row);
+
+        const sel = row.querySelector("select");
+        if (sel) {
+            sel.value = current || "present";
+            sel.addEventListener("change", () => {
+                const v = sel.value || "present";
+                setStatusFor(dateStr, userKey, v);
+                appendStatus(`Roster: ${p.name} = ${v.replaceAll("_", " ")}`);
+            });
+        }
+    }
+}
+
 // ---------------- UI rendering ----------------
 async function renderProfiles() {
-    // If you haven't mounted profilesList/enrolledCount in the UI yet, just skip safely
     if (!ui.profilesList || !ui.enrolledCount) return;
 
     ui.profilesList.innerHTML = "";
 
-    // Try DB-backed list first (optional endpoint)
     const server = await safeFetchJson("/api/face/profiles", { method: "GET" });
 
+    // ✅ DB-backed list
     if (server.ok && Array.isArray(server.data?.profiles)) {
         const profiles = server.data.profiles;
 
@@ -1220,63 +1323,85 @@ async function renderProfiles() {
 
         if (!profiles.length) {
             ui.profilesList.innerHTML = `
-        <div class="text-slate-400 text-sm">
-          No enrolled profiles yet.
-        </div>`;
+                <div class="text-slate-400 text-sm">
+                    No registered employees yet.
+                </div>`;
             return;
         }
 
         for (const p of profiles) {
+            const name = p.name || (p.user_id ? `User ${p.user_id}` : "Unknown");
+            const roleName = pickRoleName(p);
+
             const row = document.createElement("div");
             row.className =
                 "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3";
+
             row.innerHTML = `
-        <div class="min-w-0">
-          <div class="text-sm font-semibold truncate">${escapeHtml(
-              p.name || "User " + p.user_id
-          )}</div>
-          <div class="text-[11px] text-slate-400 font-mono truncate">user_id: ${
-              p.user_id
-          } • face_profile_id: ${p.face_profile_id}</div>
-        </div>
-        <div class="text-[11px] text-slate-500">DB</div>
-      `;
+                <div class="min-w-0">
+                    <div class="text-sm font-semibold truncate">${escapeHtml(name)}</div>
+
+                    <!-- ✅ ROLE BELOW NAME -->
+                    <div class="text-[11px] text-slate-400 truncate">
+                        ${escapeHtml(roleName || "—")}
+                        <span class="text-slate-500">•</span>
+                        <span class="font-mono text-slate-500">db</span>
+                    </div>
+                </div>
+
+                <div class="text-[11px] text-slate-500">DB</div>
+            `;
+
             ui.profilesList.appendChild(row);
         }
 
         return;
     }
 
-    // Fallback (legacy localStorage profiles)
+    // ✅ Local fallback list
     const profiles = getProfiles();
     ui.enrolledCount.textContent = String(profiles.length);
 
     if (!profiles.length) {
         ui.profilesList.innerHTML = `
-      <div class="text-slate-400 text-sm">
-        Enrolled list is empty (local).<br/>
-        If you're using DB enrollment, add GET <span class="font-mono text-[11px]">/api/face/profiles</span> to show DB profiles.
-      </div>`;
+            <div class="text-slate-400 text-sm">
+                Registered list is empty (local).<br/>
+                If you're using DB enrollment, add GET
+                <span class="font-mono text-[11px]">/api/face/profiles</span>
+                to show DB profiles.
+            </div>`;
         return;
     }
 
     for (const p of profiles) {
+        const name = p.name || "Unknown";
+        const roleName = p.role || p.role_name || "";
+
         const row = document.createElement("div");
         row.className =
             "flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-3";
+
         row.innerHTML = `
-      <div class="min-w-0">
-        <div class="text-sm font-semibold truncate">${escapeHtml(p.name)}</div>
-        <div class="text-[11px] text-slate-400 font-mono truncate">${escapeHtml(
-            p.id
-        )}</div>
-      </div>
-      <div class="flex items-center gap-2">
-        <button data-del="${escapeHtml(
-            p.id
-        )}" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">Delete</button>
-      </div>
-    `;
+            <div class="min-w-0">
+                <div class="text-sm font-semibold truncate">${escapeHtml(name)}</div>
+
+                <!-- ✅ ROLE BELOW NAME -->
+                <div class="text-[11px] text-slate-400 truncate">
+                    ${escapeHtml(roleName || "—")}
+                    <span class="text-slate-500">•</span>
+                    <span class="font-mono text-slate-500">local</span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button data-del="${escapeHtml(
+                    p.id
+                )}" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">
+                    Delete
+                </button>
+            </div>
+        `;
+
         ui.profilesList.appendChild(row);
     }
 
@@ -1291,16 +1416,15 @@ async function renderProfiles() {
             appendStatus(`Deleted profile: ${id}`);
             renderProfiles();
             renderLogs();
+            renderAdminRoster();
         });
     });
 }
-
 async function renderLogs() {
     if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
 
     const dateStr = ui.datePicker.value || isoDateLocal();
 
-    // Try DB-backed logs first (optional endpoint)
     const server = await safeFetchJson(
         `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
         { method: "GET" }
@@ -1309,19 +1433,12 @@ async function renderLogs() {
     if (server.ok && Array.isArray(server.data?.logs)) {
         const logs = server.data.logs;
 
-        // Convert server logs -> per-person summary (same UI)
         const map = new Map();
 
         for (const r of logs) {
             const name = r.name || "User " + r.user_id;
             if (!map.has(name)) {
-                map.set(name, {
-                    name,
-                    time_in: null,
-                    time_out: null,
-                    photo_in: null,
-                    photo_out: null,
-                });
+                map.set(name, { name, time_in: null, time_out: null, photo_in: null, photo_out: null });
             }
             const item = map.get(name);
 
@@ -1343,36 +1460,30 @@ async function renderLogs() {
 
         if (!rows.length) {
             ui.logsTbody.innerHTML = `
-        <tr>
-          <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
-        </tr>
-      `;
+                <tr>
+                  <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
+                </tr>
+            `;
             return;
         }
 
         for (const r of rows) {
             const tr = document.createElement("tr");
             tr.className = "text-slate-200";
-
             tr.innerHTML = `
-        <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-            r.time_in || "—"
-        )}</td>
-        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-            r.time_out || "—"
-        )}</td>
-        <td class="px-3 py-2">
-          <span class="text-slate-500 text-[11px]">—</span>
-        </td>
-      `;
+                <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_in || "—")}</td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_out || "—")}</td>
+                <td class="px-3 py-2">
+                  <span class="text-slate-500 text-[11px]">—</span>
+                </td>
+            `;
             ui.logsTbody.appendChild(tr);
         }
 
         return;
     }
 
-    // Fallback to local UI cache
     const rows = buildDaySummary(dateStr);
 
     ui.logsCount.textContent = String(rows.length);
@@ -1380,10 +1491,10 @@ async function renderLogs() {
 
     if (!rows.length) {
         ui.logsTbody.innerHTML = `
-      <tr>
-        <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
-      </tr>
-    `;
+          <tr>
+            <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
+          </tr>
+        `;
         return;
     }
 
@@ -1394,22 +1505,17 @@ async function renderLogs() {
         const photo = r.photo_in || r.photo_out || null;
 
         tr.innerHTML = `
-      <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-          r.time_in || "—"
-      )}</td>
-      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-          r.time_out || "—"
-      )}</td>
-      <td class="px-3 py-2">
-        ${
-            photo
-                ? `<a class="text-sky-300 hover:text-sky-200 underline text-[11px]" href="${photo}" target="_blank" rel="noopener">View</a>`
-                : `<span class="text-slate-500 text-[11px]">—</span>`
-        }
-      </td>
-    `;
-
+          <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
+          <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_in || "—")}</td>
+          <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_out || "—")}</td>
+          <td class="px-3 py-2">
+            ${
+                photo
+                    ? `<a class="text-sky-300 hover:text-sky-200 underline text-[11px]" href="${photo}" target="_blank" rel="noopener">View</a>`
+                    : `<span class="text-slate-500 text-[11px]">—</span>`
+            }
+          </td>
+        `;
         ui.logsTbody.appendChild(tr);
     }
 }
@@ -1418,6 +1524,7 @@ function setDateToToday() {
     if (!ui.datePicker) return;
     ui.datePicker.value = isoDateLocal();
     renderLogs();
+    renderAdminRoster();
     updateCheckButtonsState();
     syncAutoCheckIn();
 }
@@ -1429,41 +1536,21 @@ async function enroll() {
     const password = (ui.enrollPassword?.value || "").trim();
     const roleId = Number(ui.enrollRole?.value || 0);
 
-    if (!name) {
-        appendStatus("Enroll: Please enter a name.");
-        return;
-    }
-    if (!contact_number) {
-        appendStatus("Enroll: Please enter a contact number.");
-        return;
-    }
-    if (!password || password.length < 8) {
-        appendStatus("Enroll: Password must be at least 8 characters.");
-        return;
-    }
+    if (!name) return appendStatus("Enroll: Please enter a name.");
+    if (!contact_number) return appendStatus("Enroll: Please enter a contact number.");
+    if (!password || password.length < 8)
+        return appendStatus("Enroll: Password must be at least 8 characters.");
+    if (!roleId) return appendStatus("Enroll: Please select a role.");
 
-    if (!roleId) {
-        appendStatus("Enroll: Please select a role.");
-        return;
-    }
-
-    if (!stream) {
-        appendStatus("Enroll: Start the camera first.");
-        return;
-    }
-    if (!modelsReady) {
-        appendStatus("Enroll: Models not ready yet.");
-        return;
-    }
+    if (!stream) return appendStatus("Enroll: Start the camera first.");
+    if (!modelsReady) return appendStatus("Enroll: Models not ready yet.");
 
     appendStatus("Enroll: Capturing face…");
 
     const scan = await getSingleDescriptorStrict();
     if (!scan?.descriptor) {
         if (scan?.reason === "multiple") {
-            appendStatus(
-                `Enroll: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
-            );
+            appendStatus(`Enroll: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`);
         } else {
             appendStatus("Enroll: Face not detected.");
         }
@@ -1472,7 +1559,6 @@ async function enroll() {
 
     const threshold = Number(ui.threshold?.value ?? 0.55);
 
-    // Optional: block enrolling if already matches someone (avoid duplicates)
     const matchResp = await safeFetchJson("/api/face/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1484,9 +1570,7 @@ async function enroll() {
 
     if (matchResp.ok && matchResp.data?.matched) {
         appendStatus(
-            `Enroll blocked: Face already registered as ${
-                matchResp.data?.user?.name || "someone"
-            }.`
+            `Enroll blocked: Face already registered as ${matchResp.data?.user?.name || "someone"}.`
         );
         return;
     }
@@ -1507,9 +1591,7 @@ async function enroll() {
     if (!r.ok) {
         const msg =
             r.data?.message ||
-            (r.data?.errors
-                ? Object.values(r.data.errors).flat().join(" ")
-                : `HTTP ${r.status}`);
+            (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
         appendStatus(`Enroll failed: ${msg}`);
         return;
     }
@@ -1518,23 +1600,22 @@ async function enroll() {
     if (ui.enrollName) ui.enrollName.value = "";
     if (ui.enrollContact) ui.enrollContact.value = "";
     if (ui.enrollPassword) ui.enrollPassword.value = "";
+
     renderProfiles();
+    renderAdminRoster();
 }
 
 async function attendance(type, opts = { auto: false }) {
     const isAuto = !!opts?.auto;
     const dateStr = ui.datePicker?.value || isoDateLocal();
 
-    // Don't spam if already running
     if (attendanceInProgress) return;
     attendanceInProgress = true;
 
     try {
         if (dateStr !== isoDateLocal()) {
             if (!isAuto) {
-                appendStatus(
-                    "Range view is read-only. Set From = To to edit a single date."
-                );
+                appendStatus("Range view is read-only. Set From = To to edit a single date.");
                 appendStatus("Check In/Out works ONLY on TODAY.");
             }
             return;
@@ -1552,14 +1633,11 @@ async function attendance(type, opts = { auto: false }) {
 
         const threshold = Number(ui.threshold?.value ?? 0.55);
 
-        // Enforce today's only
         if (!isSelectedDateToday()) {
-            if (!isAuto)
-                appendStatus("Check In/Out is disabled for past dates.");
+            if (!isAuto) appendStatus("Check In/Out is disabled for past dates.");
             return;
         }
 
-        // Disable buttons while processing (manual only)
         if (!isAuto) {
             if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
             if (ui.btnCheckOut) ui.btnCheckOut.disabled = true;
@@ -1571,9 +1649,7 @@ async function attendance(type, opts = { auto: false }) {
         if (!scan?.descriptor) {
             if (!isAuto) {
                 if (scan?.reason === "multiple") {
-                    appendStatus(
-                        `${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
-                    );
+                    appendStatus(`${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`);
                 } else {
                     appendStatus(`${type}: Face not detected.`);
                 }
@@ -1581,13 +1657,7 @@ async function attendance(type, opts = { auto: false }) {
             return;
         }
 
-        // Optional: capture a small photo for your logs (UI + backend)
-        const photo = capturePhotoDataUrlScaled(
-            PERF.PHOTO_LOG_MAX_WIDTH,
-            PERF.PHOTO_LOG_QUALITY
-        );
-
-        // Map UI type -> backend type (AttendanceController expects "in" / "out")
+        const photo = capturePhotoDataUrlScaled(PERF.PHOTO_LOG_MAX_WIDTH, PERF.PHOTO_LOG_QUALITY);
         const apiType = type === "check-in" ? "in" : "out";
 
         const r = await safeFetchJson("/api/attendance/clock", {
@@ -1605,11 +1675,7 @@ async function attendance(type, opts = { auto: false }) {
         if (!r.ok) {
             const msg =
                 r.data?.message ||
-                (r.data?.errors
-                    ? Object.values(r.data.errors).flat().join(" ")
-                    : `HTTP ${r.status}`);
-
-            // For AUTO mode, keep it quiet (optional)
+                (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
             if (!isAuto) appendStatus(`${type}: ${msg}`);
             return;
         }
@@ -1617,22 +1683,18 @@ async function attendance(type, opts = { auto: false }) {
         const userId = r.data?.user?.id ?? null;
         const name = r.data?.user?.name || "Unknown";
 
-        // ✅ ADD THIS HERE (success path)
         if (type === "check-in") {
-            scanSuccessFlashUntil = Date.now() + 1200; // 1.2s green flash
+            scanSuccessFlashUntil = Date.now() + 1200;
             resetScanProgress();
         }
-        // Mark cooldown for auto
+
         if (isAuto && userId) {
             lastAutoCheckInUserId = userId;
             lastAutoCheckInAt = Date.now();
         }
 
-        // Only spam status log for manual
         if (!isAuto) appendStatus(`${type}: Saved ✅ (${name})`);
 
-        // ✅ Speak the REGISTERED name returned by backend
-        // NOTE: Auto speech may be blocked unless browser is unlocked (we unlock on Start/Buttons)
         const say = type === "check-in" ? "time in" : "time out";
         if (name && name !== "Unknown") speak(`${name} ${say}`);
         else speak("Unknown face. Please scan again.");
@@ -1641,22 +1703,25 @@ async function attendance(type, opts = { auto: false }) {
 
         showRightToast({
             name,
-            date: dateStr, // YYYY-MM-DD
-            time: timeLocal(now()), // HH:mm:ss
+            date: dateStr,
+            time: timeLocal(now()),
             action: actionLabel,
-            photoDataUrl: photo || null, // the captured image
+            photoDataUrl: photo || null,
         });
 
-        // ✅ Update UI table immediately (local UI cache only; DB is the source of truth)
         addLog(dateStr, {
             name,
             type,
             time: timeLocal(now()),
             photo_data_url: photo || null,
+            user_id: userId || "",
             server_log_id: r.data?.log_id ?? null,
         });
 
         renderLogs();
+
+        // optional: refresh roster count/dots immediately
+        if (isAdminLoggedIn()) renderAdminRoster().catch(() => {});
     } finally {
         attendanceInProgress = false;
         updateCheckButtonsState();
@@ -1704,19 +1769,54 @@ function downloadDayJson() {
     downloadText(`attendance_${dateStr}.json`, JSON.stringify(logs, null, 2));
 }
 
+// ✅ role sorting helper for export
+function roleText(role) {
+    return String(role || "").trim();
+}
+
+function roleExportOrder(role) {
+    const r = roleText(role).toUpperCase();
+    const order = { ADMIN: 1, IT: 2, CSR: 3, TECHNICAL: 4 };
+    return order[r] ?? 999;
+}
+
 async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
     const dateStr = ui.datePicker?.value || isoDateLocal();
 
-    // Make sure SheetJS is loaded
     if (!window.XLSX?.utils) {
-        alert(
-            "XLSX library not loaded. (SheetJS script must load before app.js)"
-        );
+        alert("XLSX library not loaded. (SheetJS script must load before app.js)");
         return;
     }
 
-    // 1) Prefer DB logs if endpoint exists, else fallback to local UI cache
-    let source = "local";
+    // ✅ 0) Load ALL registered people (DB first, fallback to local profiles)
+    const { people } = await fetchAllRegisteredPeople();
+
+    // Build lookup maps for role/name by user_id and by name
+    const peopleById = new Map();   // user_id -> {name, role}
+    const peopleByName = new Map(); // lower(name) -> {name, role, user_id}
+
+    for (const p of people) {
+        const uid = p.user_id != null ? String(p.user_id) : "";
+        const nm = String(p.name || "").trim();
+        const rl = String(p.role || "").trim();
+
+        if (uid) peopleById.set(uid, { name: nm, role: rl });
+        if (nm) peopleByName.set(nm.toLowerCase(), { name: nm, role: rl, user_id: uid });
+    }
+
+    const resolvePersonRole = (userId, name, fallbackRole = "") => {
+        const uid = userId != null ? String(userId) : "";
+        const nm = String(name || "").trim();
+
+        if (uid && peopleById.has(uid)) return peopleById.get(uid).role || fallbackRole || "";
+        if (nm) {
+            const hit = peopleByName.get(nm.toLowerCase());
+            if (hit?.role) return hit.role;
+        }
+        return String(fallbackRole || "");
+    };
+
+    // ✅ 1) Load RAW logs (DB endpoint preferred, else local UI cache)
     let raw = [];
 
     const server = await safeFetchJson(
@@ -1725,33 +1825,31 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
     );
 
     if (server.ok && Array.isArray(server.data?.logs)) {
-        source = "db";
         raw = server.data.logs.map((r) => {
             const dt = r.occurred_at ? new Date(r.occurred_at) : null;
 
-            const roleName =
+            const userId = r.user_id || r.user?.id || "";
+            const name = r.name || r.user_name || (userId ? `User ${userId}` : "");
+            const roleFromLog =
                 r.role_name ||
                 r.role?.name ||
                 r.user?.role_name ||
                 r.user?.role?.name ||
                 "";
 
+            const role = resolvePersonRole(userId, name, roleFromLog);
+
             return {
                 date: dateStr,
                 occurred_at: r.occurred_at || "",
                 time: dt ? timeLocal(dt) : "",
-                name:
-                    r.name ||
-                    r.user_name ||
-                    (r.user_id ? `User ${r.user_id}` : ""),
-                role: roleName,
-                type: r.type || "", // usually "in" / "out"
-                user_id: r.user_id || r.user?.id || "",
+                name,
+                role,
+                type: r.type || "",
+                user_id: userId,
                 device_id: r.device_id || "",
                 photo_path: r.photo_path || "",
-                photo_data_url: includePhotoDataUrl
-                    ? r.photo_data_url || ""
-                    : "",
+                photo_data_url: includePhotoDataUrl ? r.photo_data_url || "" : "",
                 meta:
                     r.meta == null
                         ? ""
@@ -1761,85 +1859,133 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
             };
         });
     } else {
-        // local fallback
-        raw = getLogsForDate(dateStr).map((r) => ({
-            date: dateStr,
-            occurred_at:
-                r?.occurred_at || (r?.time ? `${dateStr} ${r.time}` : ""),
-            time: r?.time || "",
-            name: r?.name || "",
-            role: r?.role || r?.role_name || "",
-            type: r?.type || "", // "check-in" / "check-out"
-            user_id: r?.user_id || "",
-            device_id: r?.device_id || "",
-            photo_path: r?.photo_path || "",
-            photo_data_url: includePhotoDataUrl ? r?.photo_data_url || "" : "",
-            meta:
-                r?.meta == null
-                    ? ""
-                    : typeof r.meta === "string"
-                    ? r.meta
-                    : JSON.stringify(r.meta),
-        }));
+        raw = getLogsForDate(dateStr).map((r) => {
+            const userId = r?.user_id || "";
+            const name = r?.name || "";
+            const roleFromLog = r?.role || r?.role_name || "";
+            const role = resolvePersonRole(userId, name, roleFromLog);
+
+            return {
+                date: dateStr,
+                occurred_at: r?.occurred_at || (r?.time ? `${dateStr} ${r.time}` : ""),
+                time: r?.time || "",
+                name,
+                role,
+                type: r?.type || "",
+                user_id: userId,
+                device_id: r?.device_id || "",
+                photo_path: r?.photo_path || "",
+                photo_data_url: includePhotoDataUrl ? r?.photo_data_url || "" : "",
+                meta:
+                    r?.meta == null
+                        ? ""
+                        : typeof r.meta === "string"
+                        ? r.meta
+                        : JSON.stringify(r.meta),
+            };
+        });
     }
 
-    // 2) Build Summary sheet (one row per person: first in, last out)
+    // Sort RAW by ROLE then NAME then TIME
+    raw.sort((a, b) => {
+        const ra = roleExportOrder(a.role);
+        const rb = roleExportOrder(b.role);
+        if (ra !== rb) return ra - rb;
+
+        const na = (a.name || "").toLowerCase();
+        const nb = (b.name || "").toLowerCase();
+        if (na !== nb) return na.localeCompare(nb);
+
+        const ta = a.time || "";
+        const tb = b.time || "";
+        return ta.localeCompare(tb);
+    });
+
+    // ✅ 2) Build SUMMARY — seed with ALL registered people first
+    // One row per person per date: includes even if no time in/out
     const summaryMap = new Map();
 
+    const makeKey = (userId, name) => {
+        const uid = userId != null ? String(userId) : "";
+        const nm = String(name || "").trim().toLowerCase();
+        return uid ? `id:${uid}` : `name:${nm}`;
+    };
+
+    // Seed summary with registered people
+    for (const p of people) {
+        const uid = p.user_id != null ? String(p.user_id) : "";
+        const nm = String(p.name || "").trim();
+        const rl = String(p.role || "").trim();
+
+        const key = makeKey(uid, nm);
+        summaryMap.set(key, {
+            date: dateStr,
+            user_id: uid,
+            name: nm,
+            role: rl,
+            status: getRosterStatusForExport(dateStr, uid, nm),
+            time_in: "",
+            time_out: "",
+        });
+    }
+
+    // Fill summary from raw logs
     for (const r of raw) {
-        const key = r.user_id || r.name || "unknown";
+        const uid = r.user_id != null ? String(r.user_id) : "";
+        const nm = String(r.name || "").trim();
+        const key = makeKey(uid, nm);
+
         if (!summaryMap.has(key)) {
+            // If someone has logs but isn't in registered list, still include
             summaryMap.set(key, {
                 date: dateStr,
-                user_id: r.user_id || "",
-                name: r.name || "",
-                role: r.role || "",
+                user_id: uid,
+                name: nm,
+                role: resolvePersonRole(uid, nm, r.role || ""),
+                status: getRosterStatusForExport(dateStr, uid, nm),
                 time_in: "",
                 time_out: "",
-                source,
             });
         }
 
         const item = summaryMap.get(key);
 
-        // Normalize types
-        const t = (r.type || "").toLowerCase();
-        const isIn = t === "in" || t === "check-in" || t === "time-in";
-        const isOut = t === "out" || t === "check-out" || t === "time-out";
+        // Ensure role is not missing
+        if (!item.role) item.role = resolvePersonRole(uid, nm, r.role || "");
+
+        const t = String(r.type || "").toLowerCase();
+        const isIn = t === "in" || t === "check-in" || t === "time-in" || t === "time_in";
+        const isOut = t === "out" || t === "check-out" || t === "time-out" || t === "time_out";
 
         if (isIn) {
-            // earliest in
-            if (!item.time_in || (r.time && r.time < item.time_in))
-                item.time_in = r.time;
+            if (!item.time_in || (r.time && r.time < item.time_in)) item.time_in = r.time || item.time_in;
         }
         if (isOut) {
-            // latest out
-            if (!item.time_out || (r.time && r.time > item.time_out))
-                item.time_out = r.time;
+            if (!item.time_out || (r.time && r.time > item.time_out)) item.time_out = r.time || item.time_out;
         }
 
-        // keep role/name if missing
-        if (!item.name && r.name) item.name = r.name;
-        if (!item.role && r.role) item.role = r.role;
+        // Keep status updated
+        item.status = getRosterStatusForExport(dateStr, item.user_id, item.name);
     }
 
-    const summary = Array.from(summaryMap.values()).sort((a, b) =>
-        (a.name || "").localeCompare(b.name || "")
-    );
+    const summary = Array.from(summaryMap.values());
 
-    // 3) Create workbook with 2 sheets: Summary + Raw Logs
+    // Sort SUMMARY by ROLE then NAME
+    summary.sort((a, b) => {
+        const ra = roleExportOrder(a.role);
+        const rb = roleExportOrder(b.role);
+        if (ra !== rb) return ra - rb;
+
+        const na = (a.name || "").toLowerCase();
+        const nb = (b.name || "").toLowerCase();
+        return na.localeCompare(nb);
+    });
+
+    // ✅ 3) Create workbook: Summary + Raw Logs (ONE FILE)
     const wb = XLSX.utils.book_new();
 
     const wsSummary = XLSX.utils.json_to_sheet(summary, {
-        header: [
-            "date",
-            "user_id",
-            "name",
-            "role",
-            "time_in",
-            "time_out",
-            "source",
-        ],
+        header: ["date", "user_id", "name", "role", "status", "time_in", "time_out"],
     });
     wsSummary["!freeze"] = { xSplit: 0, ySplit: 1 };
     XLSX.utils.book_append_sheet(wb, wsSummary, `Summary ${dateStr}`);
@@ -1865,6 +2011,7 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
     XLSX.writeFile(wb, `attendance_${dateStr}.xlsx`);
 }
 
+
 async function clearDay() {
     const ok = await requireAdmin("Clear logs for selected day");
     if (!ok) return;
@@ -1876,20 +2023,22 @@ async function clearDay() {
 
     appendStatus(`Cleared logs for ${dateStr}`);
     renderLogs();
+
+    if (isAdminLoggedIn()) renderAdminRoster().catch(() => {});
 }
 
 async function clearAll() {
-    const ok = await requireAdmin(
-        "Reset ALL local data (UI cache + legacy profiles)"
-    );
+    const ok = await requireAdmin("Reset ALL local data (UI cache + legacy profiles)");
     if (!ok) return;
 
     localStorage.removeItem(STORAGE_PROFILES);
     localStorage.removeItem(STORAGE_LOGS);
+    localStorage.removeItem(STORAGE_ADMIN_ROSTER_STATUS);
 
     appendStatus("Local reset done ✅ (DB data remains).");
     renderProfiles();
     renderLogs();
+    renderAdminRoster();
 }
 
 // ---------------- Threshold gating ----------------
@@ -1906,8 +2055,7 @@ function gateThresholdEvents() {
             applyAdminUiState();
             appendStatus("Threshold unlocked ✅ (admin)");
         } else {
-            if (lastThresholdValue !== null)
-                setThresholdValue(lastThresholdValue);
+            if (lastThresholdValue !== null) setThresholdValue(lastThresholdValue);
             appendStatus("Threshold change blocked (admin password required).");
         }
     });
@@ -1918,8 +2066,7 @@ function gateThresholdEvents() {
             updateThresholdUI();
             return;
         }
-        if (lastThresholdValue === null)
-            lastThresholdValue = Number(ui.threshold.value);
+        if (lastThresholdValue === null) lastThresholdValue = Number(ui.threshold.value);
         setThresholdValue(lastThresholdValue);
     });
 
@@ -1927,9 +2074,7 @@ function gateThresholdEvents() {
         if (adminUnlockedThreshold) {
             lastThresholdValue = Number(ui.threshold.value);
             updateThresholdUI();
-            appendStatus(
-                `Threshold set to ${Number(ui.threshold.value).toFixed(2)}`
-            );
+            appendStatus(`Threshold set to ${Number(ui.threshold.value).toFixed(2)}`);
         }
     });
 }
@@ -1952,149 +2097,103 @@ async function importProfilesFromFile(file) {
     }
 
     const cleaned = data.filter(
-        (p) =>
-            p &&
-            p.name &&
-            Array.isArray(p.descriptor) &&
-            p.descriptor.length === 128
+        (p) => p && p.name && Array.isArray(p.descriptor) && p.descriptor.length === 128
     );
 
     saveProfiles(cleaned);
     appendStatus(`Imported ${cleaned.length} profiles ✅ (local only)`);
     renderProfiles();
+    renderAdminRoster();
 }
 
 // ---------------- Wire up ----------------
 function bindEvents() {
-    if (ui.btnStart) ui.btnStart.addEventListener("click", startCamera);
-    if (ui.btnStop) ui.btnStop.addEventListener("click", stopCamera);
-    if (ui.btnFlip) ui.btnFlip.addEventListener("click", flipCamera);
+    ui.btnStart?.addEventListener("click", startCamera);
+    ui.btnStop?.addEventListener("click", stopCamera);
+    ui.btnFlip?.addEventListener("click", flipCamera);
 
-    if (ui.btnToday) ui.btnToday.addEventListener("click", setDateToToday);
+    ui.btnToday?.addEventListener("click", setDateToToday);
 
-    if (ui.datePicker) {
-        ui.datePicker.addEventListener("change", () => {
-            renderLogs();
-            updateCheckButtonsState();
-            syncAutoCheckIn(); // ✅ auto check-in only if today + camera running
-        });
-    }
+    ui.datePicker?.addEventListener("change", () => {
+        renderLogs();
+        updateCheckButtonsState();
+        syncAutoCheckIn();
+        renderAdminRoster(); // ✅ refresh roster per date
+    });
 
-    if (ui.btnEnroll) {
-        ui.btnEnroll.addEventListener("click", (e) => {
-            e.preventDefault();
-            enroll().catch((err) =>
-                appendStatus(`Enroll error: ${err?.message || err}`)
-            );
-        });
-    }
+    ui.btnEnroll?.addEventListener("click", (e) => {
+        e.preventDefault();
+        enroll().catch((err) => appendStatus(`Enroll error: ${err?.message || err}`));
+    });
 
-    // ✅ Manual check-in still available (optional)
-    if (ui.btnCheckIn) {
-        ui.btnCheckIn.addEventListener("click", () => {
-            unlockSpeech();
-            attendance("check-in", { auto: false }).catch((e) =>
-                appendStatus(`Check-in error: ${e?.message || e}`)
-            );
-        });
-    }
-
-    // ✅ Check-out must be CLICKED (manual)
-    if (ui.btnCheckOut) {
-        ui.btnCheckOut.addEventListener("click", () => {
-            unlockSpeech();
-            attendance("check-out", { auto: false }).catch((e) =>
-                appendStatus(`Check-out error: ${e?.message || e}`)
-            );
-        });
-    }
-
-    if (ui.btnDownloadDay)
-        ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
-    if (ui.btnDownloadDayJson)
-        ui.btnDownloadDayJson.addEventListener("click", downloadDayJson);
-    if (ui.btnDownloadDayXlsx) {
-        ui.btnDownloadDayXlsx.addEventListener("click", () => {
-            downloadDayXlsx({ includePhotoDataUrl: false }).catch((e) =>
-                appendStatus(`XLSX export error: ${e?.message || e}`)
-            );
-        });
-    }
-
-    if (ui.btnClearDay) {
-        ui.btnClearDay.addEventListener("click", () =>
-            clearDay().catch((e) =>
-                appendStatus(`Clear-day error: ${e?.message || e}`)
-            )
+    ui.btnCheckIn?.addEventListener("click", () => {
+        unlockSpeech();
+        attendance("check-in", { auto: false }).catch((e) =>
+            appendStatus(`Check-in error: ${e?.message || e}`)
         );
-    }
+    });
 
-    if (ui.btnClearAll) {
-        ui.btnClearAll.addEventListener("click", () =>
-            clearAll().catch((e) =>
-                appendStatus(`Reset error: ${e?.message || e}`)
-            )
+    ui.btnCheckOut?.addEventListener("click", () => {
+        unlockSpeech();
+        attendance("check-out", { auto: false }).catch((e) =>
+            appendStatus(`Check-out error: ${e?.message || e}`)
         );
-    }
+    });
 
-    if (ui.btnChangePw) {
-        ui.btnChangePw.addEventListener("click", () => {
-            setOrChangePasswordFlow().catch((e) =>
-                appendStatus(`Password error: ${e?.message || e}`)
-            );
-        });
-    }
+    ui.btnDownloadDay?.addEventListener("click", downloadDayCsv);
+    ui.btnDownloadDayJson?.addEventListener("click", downloadDayJson);
+    ui.btnDownloadDayXlsx?.addEventListener("click", () => {
+        downloadDayXlsx({ includePhotoDataUrl: false }).catch((e) =>
+            appendStatus(`XLSX export error: ${e?.message || e}`)
+        );
+    });
 
-    if (ui.btnExportProfiles)
-        ui.btnExportProfiles.addEventListener("click", exportProfiles);
+    ui.btnClearDay?.addEventListener("click", () => {
+        clearDay().catch((e) => appendStatus(`Clear-day error: ${e?.message || e}`));
+    });
 
-    if (ui.importProfiles) {
-        ui.importProfiles.addEventListener("change", (ev) => {
-            const file = ev.target.files?.[0];
-            if (!file) return;
-            importProfilesFromFile(file).catch((e) =>
-                appendStatus(`Import error: ${e?.message || e}`)
-            );
-            ev.target.value = "";
-        });
-    }
+    ui.btnClearAll?.addEventListener("click", () => {
+        clearAll().catch((e) => appendStatus(`Reset error: ${e?.message || e}`));
+    });
 
-    // ✅ Admin Access / Logout toggle
-    if (ui.btnAdminToggle) {
-        ui.btnAdminToggle.addEventListener("click", async () => {
-            if (isAdminLoggedIn()) {
-                setAdminLoggedIn(false);
-                adminUnlockedThreshold = false;
+    ui.btnChangePw?.addEventListener("click", () => {
+        setOrChangePasswordFlow().catch((e) => appendStatus(`Password error: ${e?.message || e}`));
+    });
 
-                if (lastThresholdValue !== null)
-                    setThresholdValue(lastThresholdValue);
+    ui.btnExportProfiles?.addEventListener("click", exportProfiles);
 
-                applyAdminUiState();
-                appendStatus("Admin logged out.");
-                return;
-            }
+    ui.importProfiles?.addEventListener("change", (ev) => {
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        importProfilesFromFile(file).catch((e) => appendStatus(`Import error: ${e?.message || e}`));
+        ev.target.value = "";
+    });
 
-            const ok = await requireAdmin("Admin access");
-            if (!ok) return;
+    ui.btnAdminToggle?.addEventListener("click", async () => {
+        if (isAdminLoggedIn()) {
+            setAdminLoggedIn(false);
+            adminUnlockedThreshold = false;
 
-            setAdminLoggedIn(true);
+            if (lastThresholdValue !== null) setThresholdValue(lastThresholdValue);
+
             applyAdminUiState();
-            appendStatus("Admin logged in ✅");
-        });
-    }
+            appendStatus("Admin logged out.");
+            return;
+        }
 
-    window.addEventListener("resize", () =>
-        requestAnimationFrame(resizeOverlayToVideo)
-    );
-    ui.video.addEventListener("loadedmetadata", () =>
-        requestAnimationFrame(resizeOverlayToVideo)
-    );
+        const ok = await requireAdmin("Admin access");
+        if (!ok) return;
 
-    // Optional: if you switch tabs, pause scanning and resume
+        setAdminLoggedIn(true);
+        applyAdminUiState(); // ✅ will render roster
+        appendStatus("Admin logged in ✅");
+    });
+
+    window.addEventListener("resize", () => requestAnimationFrame(resizeOverlayToVideo));
+    ui.video?.addEventListener("loadedmetadata", () => requestAnimationFrame(resizeOverlayToVideo));
+
     document.addEventListener("visibilitychange", () => {
         if (!PERF.PAUSE_WHEN_HIDDEN) return;
-
-        // auto also pauses via shouldAutoCheckInNow()
         if (!stream) return;
 
         if (document.hidden) {
@@ -2114,7 +2213,6 @@ function bindEvents() {
 
     if (ui.datePicker) ui.datePicker.value = isoDateLocal();
 
-    // clock
     const tickClock = () => {
         const d = now();
         if (ui.tzLabel) {
@@ -2122,26 +2220,22 @@ function bindEvents() {
                 Intl.DateTimeFormat().resolvedOptions().timeZone || "local"
             }`;
         }
-        if (ui.nowLabel)
-            ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
+        if (ui.nowLabel) ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
     };
     tickClock();
     setInterval(tickClock, 1000);
 
     bindEvents();
-    applyAdminUiState(); // ✅ show/hide admin panel + button text on load
+    applyAdminUiState();
     renderProfiles();
     renderLogs();
+    renderAdminRoster();
     updateCheckButtonsState();
 
     try {
         const ok = await waitForFaceApi();
-        if (!ok)
-            throw new Error(
-                "face-api.js did not load (timeout). Check script tag + network."
-            );
+        if (!ok) throw new Error("face-api.js did not load (timeout). Check script tag + network.");
 
-        // ✅ bind module variable so all your functions can use `faceapi` safely
         faceapi = window.faceapi;
 
         await loadModels();
@@ -2150,18 +2244,16 @@ function bindEvents() {
             "Ready. Start camera. When it detects 1 face, it will show the person's NAME on the box if registered."
         );
         appendStatus("If not registered, the box will say: Not registered.");
-        appendStatus(
-            "AUTO check-in runs every 2 seconds when 1 registered face is visible."
-        );
+        appendStatus("AUTO check-in runs every 2 seconds when 1 registered face is visible.");
         appendStatus("Check-out is MANUAL (must click the button).");
         appendStatus(
             "Check In/Out works ONLY on TODAY. You can still browse history by changing date."
         );
 
         appendStatus(
-            `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${
-                PERF.LIVE_SCAN_INTERVAL_MS
-            }ms, landmarks=${PERF.DRAW_LANDMARKS ? "ON" : "OFF"}`
+            `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${PERF.LIVE_SCAN_INTERVAL_MS}ms, landmarks=${
+                PERF.DRAW_LANDMARKS ? "ON" : "OFF"
+            }`
         );
     } catch (e) {
         setModelPill("error", "Model load failed");
@@ -2169,3 +2261,31 @@ function bindEvents() {
         appendStatus(`Model load failed: ${e?.message || e}`);
     }
 })();
+
+function statusLabel(v) {
+    const s = String(v || "present");
+    if (s === "present") return "Present";
+    if (s === "absent") return "Absent";
+    if (s === "half_day") return "Half day";
+    if (s === "day_off") return "Day off";
+    return "Present";
+}
+
+/**
+ * Export status lookup:
+ * - Try by user_id first (best)
+ * - fallback to name
+ * - default Present
+ */
+function getRosterStatusForExport(dateStr, userId, name) {
+    const uid = userId != null ? String(userId) : "";
+    const nm = name != null ? String(name) : "";
+
+    const byId = uid ? getStatusFor(dateStr, uid) : "";
+    if (byId) return statusLabel(byId);
+
+    const byName = nm ? getStatusFor(dateStr, nm) : "";
+    if (byName) return statusLabel(byName);
+
+    return "Present";
+}

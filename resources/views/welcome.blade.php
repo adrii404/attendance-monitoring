@@ -97,6 +97,7 @@
                         </div>
 
                     </div>
+
                     <div id="adminPanel" class="hidden mt-4">
                         <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
                             <div>
@@ -117,7 +118,7 @@
                                     class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
 
                                 <select id="enrollRole"
-                                    class="w-full rounded-xl bg-white/5 border border-white/10 p-3 text-slate-100">
+                                    class="w-full rounded-xl bg-black border border-white/10 p-3 text-slate-100">
                                     <option value="">Select role</option>
                                     <option value="1">ADMIN</option>
                                     <option value="2">IT</option>
@@ -139,31 +140,45 @@
                                     <label
                                         class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 cursor-pointer">
                                         Import
-                                        <input id="importProfiles" type="file" accept="application/json"
-                                            class="hidden" />
+                                        <input id="importProfiles" type="file" accept="application/json" class="hidden" />
                                     </label>
                                 </div>
                             </div>
                         </div>
+
+                        <!-- ✅ Admin: Registered People Status -->
+                        <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-3">
+                            <div class="flex items-center justify-between gap-3">
+                                <div>
+                                    <div class="text-sm font-semibold">Registered Employee</div>
+                                    
+                                </div>
+                                <div class="text-[11px] text-slate-400"><span id="rosterCount">0</span> people</div>
+                            </div>
+
+                            <div id="adminRosterList" class="mt-3 grid gap-2"></div>
+
+                            
+                        </div>
+
                         <div class=" mt-4 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
                             <div class="text-xs text-slate-300">Threshold (lower = stricter) — Admin only</div>
 
                             <div class="mt-2 flex items-center gap-3">
-                                <input id="threshold" type="range" min="0.35" max="0.75" step="0.01"
-                                    value="0.55" class="w-full">
+                                <input id="threshold" type="range" min="0.35" max="0.75" step="0.01" value="0.55"
+                                    class="w-full">
                                 <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.55</div>
                             </div>
 
                             <div class="mt-1 text-[11px] text-slate-400">Tip: 0.50–0.60 is a common starting range.
                             </div>
                         </div>
+
                         <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-3">
                             <div class="flex items-start justify-between gap-3">
                                 <div>
                                     <div class="text-sm font-semibold">System message</div>
-                                    <div class="text-xs text-slate-300">
-                                        Local demo only. Photos are saved per log (can hit browser storage limits).
-                                    </div>
+                                    
                                 </div>
 
                                 <div class="flex items-center gap-2">
@@ -181,12 +196,8 @@
                                         max-h-[18.5em] overflow-y-auto pr-2 rounded-xl bg-black/10
                                         ring-1 ring-white/10"></pre>
                         </div>
+
                         <div class="mt-3 flex flex-wrap items-center gap-2">
-                            <button id="btnDownloadDay" type="button"
-                                class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download
-                                CSV (selected day)</button>
-
-
                             <button id="btnDownloadDayXlsx" type="button"
                                 class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">
                                 Download Excel (selected day)
@@ -200,6 +211,7 @@
                                 selected day</button>
                         </div>
                     </div>
+
                     <div class="mt-4 flex justify-end">
                         <button id="btnAdminToggle" type="button"
                             class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 cursor-pointer">Admin
@@ -229,23 +241,21 @@
 
                     <div class="mt-4">
                         <div id="videoWrap" class="relative">
-                            <video id="video" class="w-full rounded-2xl border border-white/10 bg-black" autoplay
-                                muted playsinline></video>
+                            <video id="video" class="w-full rounded-2xl border border-white/10 bg-black" autoplay muted
+                                playsinline></video>
                             <canvas id="overlay" class="pointer-events-none absolute inset-0"></canvas>
                         </div>
 
-                        <!-- ✅ everything else OUTSIDE videoWrap -->
                         <div class="mt-2 rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm">
                             <span class="text-slate-400">Detected:</span>
                             <span id="liveDetectedName" class="font-semibold text-emerald-300">—</span>
                         </div>
 
-
                         <div class="mt-4">
                             <div>
                                 <div class="text-sm font-semibold">Attendance actions</div>
-                                <div class="text-xs text-slate-300">Face-match an enrolled person, then log
-                                    check-in/out.</div>
+                                <div class="text-xs text-slate-300">Face-match an enrolled person, then log check-in/out.
+                                </div>
                             </div>
 
                             <div class="mt-3 grid gap-2 lg:grid-cols-2">
@@ -261,11 +271,11 @@
 
                 </div>
             </section>
+
             <section>
                 <div id="toastList" class="space-y-3"></div>
             </section>
         </div>
-
 
         <!-- Admin Password Modal -->
         <div id="pwModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
@@ -289,7 +299,6 @@
                 </div>
             </div>
         </div>
-
 
         <footer class="mt-8 text-center text-[11px] text-slate-500">
         </footer>
