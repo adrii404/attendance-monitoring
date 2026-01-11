@@ -11,10 +11,10 @@ class FaceController extends Controller
     public function enroll(Request $request)
     {
         $data = $request->validate([
-            'user_id' => ['required','integer','exists:users,id'],
-            'descriptor' => ['required','array','size:128'],
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'descriptor' => ['required', 'array', 'size:128'],
             'descriptor.*' => ['numeric'],
-            'label' => ['nullable','string','max:255'],
+            'label' => ['nullable', 'string', 'max:255'],
         ]);
 
         $profile = FaceProfile::create([
@@ -33,9 +33,9 @@ class FaceController extends Controller
     public function match(Request $request)
     {
         $data = $request->validate([
-            'descriptor' => ['required','array','size:128'],
+            'descriptor' => ['required', 'array', 'size:128'],
             'descriptor.*' => ['numeric'],
-            'threshold' => ['nullable','numeric','min:0.2','max:1.0'],
+            'threshold' => ['nullable', 'numeric', 'min:0.2', 'max:1.0'],
         ]);
 
         $threshold = (float)($data['threshold'] ?? 0.45);
@@ -53,7 +53,7 @@ class FaceController extends Controller
             if ($d <= $threshold && ($best === null || $d < $best['distance'])) {
                 $best = [
                     'user_id' => $p->user_id,
-                    'name' => $p->user?->name ?? ('User '.$p->user_id),
+                    'name' => $p->user?->name ?? ('User ' . $p->user_id),
                     'distance' => $d,
                 ];
             }
@@ -80,19 +80,26 @@ class FaceController extends Controller
     {
         $rows = FaceProfile::query()
             ->where('is_active', true)
-            ->with('user:id,name,contact_number')
+            ->with([
+                'user:id,name,contact_number,role_id',
+                'user.role:id,name',
+            ])
             ->latest()
             ->get(['id', 'user_id', 'label', 'created_at']);
 
         return response()->json([
             'success' => true,
-            'profiles' => $rows->map(fn ($p) => [
+            'profiles' => $rows->map(fn($p) => [
                 'face_profile_id' => $p->id,
                 'user_id' => $p->user_id,
                 'name' => $p->user?->name,
                 'contact_number' => $p->user?->contact_number,
                 'label' => $p->label,
                 'created_at' => $p->created_at?->toISOString(),
+
+                // ✅ ADD THESE:
+                'role_id' => $p->user?->role_id,
+                'role_name' => $p->user?->role?->name,
             ])->values(),
         ]);
     }
