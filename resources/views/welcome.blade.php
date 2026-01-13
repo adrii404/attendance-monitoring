@@ -9,6 +9,9 @@
 
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
+    <!-- ✅ SweetAlert2 (for Check-In confirmation popup) -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
@@ -34,6 +37,22 @@
             height: 100%;
         }
     </style>
+
+    <!-- ✅ SweetAlert global theme config (optional) -->
+    <script>
+        // Make SweetAlert match your dark UI
+        document.addEventListener("DOMContentLoaded", () => {
+            if (!window.Swal) return;
+
+            // Optional: set defaults
+            window.Swal = window.Swal.mixin({
+                background: "#0b1220",
+                color: "#e2e8f0",
+                confirmButtonColor: "#34d399", // emerald
+                cancelButtonColor: "#334155",  // slate
+            });
+        });
+    </script>
 </head>
 
 <body class="min-h-screen bg-slate-950 text-slate-100">
@@ -151,22 +170,20 @@
                             <div class="flex items-center justify-between gap-3">
                                 <div>
                                     <div class="text-sm font-semibold">Registered Employee</div>
-                                    
+
                                 </div>
                                 <div class="text-[11px] text-slate-400"><span id="rosterCount">0</span> people</div>
                             </div>
 
                             <div id="adminRosterList" class="mt-3 grid gap-2"></div>
-
-                            
                         </div>
 
                         <div class=" mt-4 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
                             <div class="text-xs text-slate-300">Threshold (lower = stricter) — Admin only</div>
 
                             <div class="mt-2 flex items-center gap-3">
-                                <input id="threshold" type="range" min="0.35" max="0.75" step="0.01" value="0.55"
-                                    class="w-full">
+                                <input id="threshold" type="range" min="0.35" max="0.35" step="0.01" value="0.35" class="w-full" disabled>
+                                    
                                 <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.55</div>
                             </div>
 
@@ -178,7 +195,7 @@
                             <div class="flex items-start justify-between gap-3">
                                 <div>
                                     <div class="text-sm font-semibold">System message</div>
-                                    
+
                                 </div>
 
                                 <div class="flex items-center gap-2">
@@ -303,6 +320,36 @@
         <footer class="mt-8 text-center text-[11px] text-slate-500">
         </footer>
     </main>
+
+    <!-- ✅ SweetAlert helper used by app.js (no need to change your app.js if it calls confirmTimeInPopup using Swal) -->
+    <script>
+        /**
+         * Optional bridge:
+         * If your app.js calls `window.confirmTimeInSwal(name)` you can use this.
+         * If your current app.js uses `window.confirm()` then UPDATE app.js to call this instead.
+         */
+        window.confirmTimeInSwal = async function (name) {
+            if (!window.Swal) {
+                return window.confirm(`Confirm TIME-IN?\n\nName: ${name}`);
+            }
+
+            const result = await window.Swal.fire({
+                title: "Confirm Check-In?",
+                html: `<div style="font-size:14px;line-height:1.4">
+                        <div style="opacity:.85">Detected employee:</div>
+                        <div style="margin-top:6px;font-weight:700;color:#34d399">${String(name || "—")}</div>
+                       </div>`,
+                icon: "question",
+                showCancelButton: true,
+                confirmButtonText: "Yes, Check-In",
+                cancelButtonText: "Cancel",
+                reverseButtons: true,
+                focusCancel: true,
+            });
+
+            return !!result.isConfirmed;
+        };
+    </script>
 </body>
 
 </html>
