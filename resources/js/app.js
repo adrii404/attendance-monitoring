@@ -26,6 +26,9 @@ import "./bootstrap";
  * ✅ EXCEL EXPORT:
  * - Single .xlsx file (same as before)
  * - Sort rows by ROLE then NAME (both Summary + Raw Logs)
+ *
+ * ✅ FIXED THRESHOLD:
+ * - Threshold is fixed at 0.35 (UI shows 0.35 and slider is disabled)
  */
 
 // ✅ Try local first (best), then CDN fallbacks
@@ -48,6 +51,9 @@ const STORAGE_ADMIN_ROSTER_STATUS = "fb_attendance_roster_status_v1";
 
 const el = (id) => document.getElementById(id);
 
+// ✅ FIXED MATCH THRESHOLD (no slider)
+const FIXED_MATCH_THRESHOLD = 0.35;
+
 function escapeHtml(str) {
     return String(str ?? "")
         .replace(/&/g, "&amp;")
@@ -57,28 +63,14 @@ function escapeHtml(str) {
         .replace(/'/g, "&#039;");
 }
 
-const ROLE_BY_ID = {
-    1: "ADMIN",
-    2: "IT",
-    3: "CSR",
-    4: "TECHNICAL",
-};
-
-function roleNameFromId(id) {
-    const n = Number(id || 0);
-    return ROLE_BY_ID[n] || "";
-}
-
 function pickRoleName(p) {
     return (
         p?.role_name ||
         p?.role?.name ||
-        p?.role || // if API returns role as a string
         p?.user?.role_name ||
         p?.user?.role?.name ||
         p?.user_role ||
         p?.role_text ||
-        roleNameFromId(p?.role_id ?? p?.user?.role_id) || // ✅ fallback from role_id
         ""
     );
 }
@@ -161,7 +153,7 @@ const PERF = {
     ACTION_SCORE_THRESHOLD: 0.5,
 
     AUTO_CHECKIN_INTERVAL_MS: 2000,
-    AUTO_CHECKIN_SAME_USER_COOLDOWN_MS: 8000,
+    AUTO_CHECKIN_SAME_USER_COOLDOWN_MS: 20000,
 
     DRAW_LANDMARKS: false,
 
@@ -358,11 +350,60 @@ let modelsReady = false;
 let scanInProgress = false;
 let liveTimer = null;
 
-let adminUnlockedThreshold = false;
-let lastThresholdValue = null;
+// ✅ threshold UI no longer admin-gated (fixed)
+let lastThresholdValue = FIXED_MATCH_THRESHOLD;
 
 // ✅ prevent overlapping attendance calls
 let attendanceInProgress = false;
+
+// ---------------- Time-In confirmation ----------------
+// ✅ Confirm popup for TIME-IN only (registered users)
+let timeInConfirmOpen = false;
+
+// avoid spamming confirmation (especially for AUTO)
+let lastTimeInPromptUserId = null;
+let lastTimeInPromptAt = 0;
+
+// if user CANCELS time-in, don't ask again for a while
+const TIMEIN_PROMPT_COOLDOWN_MS = 12000;
+
+function canPromptTimeIn(userId) {
+    const uid = userId != null ? String(userId) : "";
+    const nowMs = Date.now();
+    if (!uid) return true;
+
+    if (
+        lastTimeInPromptUserId === uid &&
+        nowMs - lastTimeInPromptAt < TIMEIN_PROMPT_COOLDOWN_MS
+    ) {
+        return false;
+    }
+    return true;
+}
+
+function markTimeInPrompted(userId) {
+    const uid = userId != null ? String(userId) : "";
+    lastTimeInPromptUserId = uid || null;
+    lastTimeInPromptAt = Date.now();
+}
+
+async function confirmTimeInPopup(name) {
+    if (timeInConfirmOpen) return false;
+    timeInConfirmOpen = true;
+
+    try {
+        // ✅ Use SweetAlert if available (from your Blade <head>)
+        if (typeof window.confirmTimeInSwal === "function") {
+            return await window.confirmTimeInSwal(name);
+        }
+
+        // fallback
+        const msg = `Confirm TIME-IN?\n\nName: ${name}\n\nPress OK to Time-In.\nPress Cancel to skip.`;
+        return window.confirm(msg);
+    } finally {
+        timeInConfirmOpen = false;
+    }
+}
 
 // ---------------- Utilities ----------------
 function now() {
@@ -410,15 +451,14 @@ function setModelPill(state, label) {
             : "bg-amber-300");
 }
 
+// ✅ always fixed at 0.35 + disable slider
 function updateThresholdUI() {
-    if (!ui.thresholdVal || !ui.threshold) return;
-    ui.thresholdVal.textContent = Number(ui.threshold.value).toFixed(2);
-}
-
-function setThresholdValue(v) {
-    if (!ui.threshold) return;
-    ui.threshold.value = String(v);
-    updateThresholdUI();
+    if (ui.threshold) {
+        ui.threshold.value = String(FIXED_MATCH_THRESHOLD);
+    }
+    if (ui.thresholdVal) {
+        ui.thresholdVal.textContent = Number(FIXED_MATCH_THRESHOLD).toFixed(2);
+    }
 }
 
 function safeJsonParse(text, fallback) {
@@ -619,11 +659,8 @@ function applyAdminUiState() {
     if (ui.btnAdminToggle)
         ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
 
-    adminUnlockedThreshold = on;
-
-    if (!on && lastThresholdValue !== null) {
-        setThresholdValue(lastThresholdValue);
-    }
+    // ✅ slider remains fixed & disabled regardless of admin state
+    updateThresholdUI();
 
     // ✅ refresh roster list whenever admin logs in/out
     if (on) renderAdminRoster().catch(() => {});
@@ -966,7 +1003,8 @@ async function runLiveScanOnce() {
             return;
         }
 
-        const threshold = Number(ui.threshold?.value ?? 0.55);
+        // ✅ FIXED THRESHOLD
+        const threshold = FIXED_MATCH_THRESHOLD;
         const d = results[0]?.descriptor || null;
 
         if (!d) {
@@ -1073,6 +1111,10 @@ function shouldAutoCheckInNow() {
     if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return false;
 
     if (!liveSingle.matched || !liveSingle.userId) return false;
+
+    // ✅ If user recently cancelled the Time-In confirmation, don't ask again yet
+    if (!canPromptTimeIn(liveSingle.userId)) return false;
+
     if (scanProgressPct < 100) return false;
     if (attendanceInProgress || autoCheckInInFlight) return false;
 
@@ -1191,12 +1233,6 @@ async function flipCamera() {
 
 // ---------------- Robust profile parsing + normalization ----------------
 function extractProfilesArray(payload) {
-    // Accept many Laravel shapes:
-    // - [] (plain array)
-    // - { profiles: [] }
-    // - { data: [] }
-    // - { profiles: { data: [] } }  (pagination)
-    // - { data: { data: [] } }      (pagination)
     if (!payload) return [];
     if (Array.isArray(payload)) return payload;
 
@@ -1218,8 +1254,12 @@ function normalizeProfile(p) {
         p?.user_name ??
         p?.user?.name ??
         (user_id ? `User ${user_id}` : "");
-
-    const role = pickRoleName(p) || "";
+    const role =
+        p?.role_name ??
+        p?.role?.name ??
+        p?.user?.role_name ??
+        p?.user?.role?.name ??
+        "";
 
     const key =
         user_id != null && String(user_id) !== ""
@@ -1285,7 +1325,6 @@ async function fetchAllRegisteredPeople() {
             ? `Failed to load /api/face/profiles (HTTP ${server.status}).`
             : "Failed to load /api/face/profiles (network error).";
 
-    // Fallback: legacy local profiles
     const local = getProfiles();
     return {
         people: local
@@ -1406,7 +1445,6 @@ async function renderProfiles() {
 
     const server = await safeFetchJson("/api/face/profiles", { method: "GET" });
 
-    // ✅ DB-backed list
     if (server.ok && Array.isArray(server.data?.profiles)) {
         const profiles = server.data.profiles;
 
@@ -1434,8 +1472,6 @@ async function renderProfiles() {
                     <div class="text-sm font-semibold truncate">${escapeHtml(
                         name
                     )}</div>
-
-                    <!-- ✅ ROLE BELOW NAME -->
                     <div class="text-[11px] text-slate-400 truncate">
                         ${escapeHtml(roleName || "—")}
                         <span class="text-slate-500">•</span>
@@ -1452,7 +1488,6 @@ async function renderProfiles() {
         return;
     }
 
-    // ✅ Local fallback list
     const profiles = getProfiles();
     ui.enrolledCount.textContent = String(profiles.length);
 
@@ -1480,8 +1515,6 @@ async function renderProfiles() {
                 <div class="text-sm font-semibold truncate">${escapeHtml(
                     name
                 )}</div>
-
-                <!-- ✅ ROLE BELOW NAME -->
                 <div class="text-[11px] text-slate-400 truncate">
                     ${escapeHtml(roleName || "—")}
                     <span class="text-slate-500">•</span>
@@ -1516,6 +1549,7 @@ async function renderProfiles() {
         });
     });
 }
+
 async function renderLogs() {
     if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
 
@@ -1523,7 +1557,9 @@ async function renderLogs() {
 
     const server = await safeFetchJson(
         `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
-        { method: "GET" }
+        {
+            method: "GET",
+        }
     );
 
     if (server.ok && Array.isArray(server.data?.logs)) {
@@ -1670,7 +1706,8 @@ async function enroll() {
         return;
     }
 
-    const threshold = Number(ui.threshold?.value ?? 0.55);
+    // ✅ FIXED THRESHOLD
+    const threshold = FIXED_MATCH_THRESHOLD;
 
     const matchResp = await safeFetchJson("/api/face/match", {
         method: "POST",
@@ -1750,7 +1787,8 @@ async function attendance(type, opts = { auto: false }) {
             return;
         }
 
-        const threshold = Number(ui.threshold?.value ?? 0.55);
+        // ✅ FIXED THRESHOLD
+        const threshold = FIXED_MATCH_THRESHOLD;
 
         if (!isSelectedDateToday()) {
             if (!isAuto)
@@ -1777,6 +1815,27 @@ async function attendance(type, opts = { auto: false }) {
                 }
             }
             return;
+        }
+
+        // ✅ TIME-IN CONFIRMATION (registered only)
+        if (type === "check-in") {
+            const pre = await serverMatchDescriptor(scan.descriptor, threshold);
+
+            if (!pre?.matched || !pre?.user?.name) {
+                if (!isAuto) appendStatus("Time-In blocked: Not registered.");
+                return;
+            }
+
+            const uid = pre.user?.id ?? null;
+
+            if (!canPromptTimeIn(uid)) return;
+
+            const ok = await confirmTimeInPopup(pre.user.name);
+            if (!ok) {
+                markTimeInPrompted(uid);
+                if (!isAuto) appendStatus("Time-In cancelled.");
+                return;
+            }
         }
 
         const photo = capturePhotoDataUrlScaled(
@@ -1822,6 +1881,15 @@ async function attendance(type, opts = { auto: false }) {
 
         if (!isAuto) appendStatus(`${type}: Saved ✅ (${name})`);
 
+        if (!isAuto) {
+            window.toastSwal?.(
+                `${
+                    type === "check-in" ? "Time-In" : "Time-Out"
+                } saved: ${name}`,
+                "success"
+            );
+        }
+
         const say = type === "check-in" ? "time in" : "time out";
         if (name && name !== "Unknown") speak(`${name} ${say}`);
         else speak("Unknown face. Please scan again.");
@@ -1847,7 +1915,6 @@ async function attendance(type, opts = { auto: false }) {
 
         renderLogs();
 
-        // optional: refresh roster count/dots immediately
         if (isAdminLoggedIn()) renderAdminRoster().catch(() => {});
     } finally {
         attendanceInProgress = false;
@@ -1917,12 +1984,10 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         return;
     }
 
-    // ✅ 0) Load ALL registered people (DB first, fallback to local profiles)
     const { people } = await fetchAllRegisteredPeople();
 
-    // Build lookup maps for role/name by user_id and by name
-    const peopleById = new Map(); // user_id -> {name, role}
-    const peopleByName = new Map(); // lower(name) -> {name, role, user_id}
+    const peopleById = new Map();
+    const peopleByName = new Map();
 
     for (const p of people) {
         const uid = p.user_id != null ? String(p.user_id) : "";
@@ -1951,12 +2016,13 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         return String(fallbackRole || "");
     };
 
-    // ✅ 1) Load RAW logs (DB endpoint preferred, else local UI cache)
     let raw = [];
 
     const server = await safeFetchJson(
         `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
-        { method: "GET" }
+        {
+            method: "GET",
+        }
     );
 
     if (server.ok && Array.isArray(server.data?.logs)) {
@@ -2027,7 +2093,6 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         });
     }
 
-    // Sort RAW by ROLE then NAME then TIME
     raw.sort((a, b) => {
         const ra = roleExportOrder(a.role);
         const rb = roleExportOrder(b.role);
@@ -2042,8 +2107,6 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         return ta.localeCompare(tb);
     });
 
-    // ✅ 2) Build SUMMARY — seed with ALL registered people first
-    // One row per person per date: includes even if no time in/out
     const summaryMap = new Map();
 
     const makeKey = (userId, name) => {
@@ -2054,7 +2117,6 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         return uid ? `id:${uid}` : `name:${nm}`;
     };
 
-    // Seed summary with registered people
     for (const p of people) {
         const uid = p.user_id != null ? String(p.user_id) : "";
         const nm = String(p.name || "").trim();
@@ -2072,14 +2134,12 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         });
     }
 
-    // Fill summary from raw logs
     for (const r of raw) {
         const uid = r.user_id != null ? String(r.user_id) : "";
         const nm = String(r.name || "").trim();
         const key = makeKey(uid, nm);
 
         if (!summaryMap.has(key)) {
-            // If someone has logs but isn't in registered list, still include
             summaryMap.set(key, {
                 date: dateStr,
                 user_id: uid,
@@ -2093,7 +2153,6 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
 
         const item = summaryMap.get(key);
 
-        // Ensure role is not missing
         if (!item.role) item.role = resolvePersonRole(uid, nm, r.role || "");
 
         const t = String(r.type || "").toLowerCase();
@@ -2117,7 +2176,6 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
                 item.time_out = r.time || item.time_out;
         }
 
-        // Keep status updated
         item.status = getRosterStatusForExport(
             dateStr,
             item.user_id,
@@ -2127,7 +2185,6 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
 
     const summary = Array.from(summaryMap.values());
 
-    // Sort SUMMARY by ROLE then NAME
     summary.sort((a, b) => {
         const ra = roleExportOrder(a.role);
         const rb = roleExportOrder(b.role);
@@ -2138,7 +2195,6 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         return na.localeCompare(nb);
     });
 
-    // ✅ 3) Create workbook: Summary + Raw Logs (ONE FILE)
     const wb = XLSX.utils.book_new();
 
     const wsSummary = XLSX.utils.json_to_sheet(summary, {
@@ -2207,48 +2263,6 @@ async function clearAll() {
     renderAdminRoster();
 }
 
-// ---------------- Threshold gating ----------------
-function gateThresholdEvents() {
-    if (!ui.threshold) return;
-
-    ui.threshold.addEventListener("mousedown", async () => {
-        if (adminUnlockedThreshold) return;
-
-        const ok = await requireAdmin("Unlock threshold slider");
-        if (ok) {
-            adminUnlockedThreshold = true;
-            setAdminLoggedIn(true);
-            applyAdminUiState();
-            appendStatus("Threshold unlocked ✅ (admin)");
-        } else {
-            if (lastThresholdValue !== null)
-                setThresholdValue(lastThresholdValue);
-            appendStatus("Threshold change blocked (admin password required).");
-        }
-    });
-
-    ui.threshold.addEventListener("input", () => {
-        if (adminUnlockedThreshold) {
-            lastThresholdValue = Number(ui.threshold.value);
-            updateThresholdUI();
-            return;
-        }
-        if (lastThresholdValue === null)
-            lastThresholdValue = Number(ui.threshold.value);
-        setThresholdValue(lastThresholdValue);
-    });
-
-    ui.threshold.addEventListener("change", () => {
-        if (adminUnlockedThreshold) {
-            lastThresholdValue = Number(ui.threshold.value);
-            updateThresholdUI();
-            appendStatus(
-                `Threshold set to ${Number(ui.threshold.value).toFixed(2)}`
-            );
-        }
-    });
-}
-
 // ---------------- Profile export/import (legacy local) ----------------
 function exportProfiles() {
     const profiles = getProfiles();
@@ -2292,7 +2306,7 @@ function bindEvents() {
         renderLogs();
         updateCheckButtonsState();
         syncAutoCheckIn();
-        renderAdminRoster(); // ✅ refresh roster per date
+        renderAdminRoster();
     });
 
     ui.btnEnroll?.addEventListener("click", (e) => {
@@ -2356,11 +2370,6 @@ function bindEvents() {
     ui.btnAdminToggle?.addEventListener("click", async () => {
         if (isAdminLoggedIn()) {
             setAdminLoggedIn(false);
-            adminUnlockedThreshold = false;
-
-            if (lastThresholdValue !== null)
-                setThresholdValue(lastThresholdValue);
-
             applyAdminUiState();
             appendStatus("Admin logged out.");
             return;
@@ -2370,7 +2379,7 @@ function bindEvents() {
         if (!ok) return;
 
         setAdminLoggedIn(true);
-        applyAdminUiState(); // ✅ will render roster
+        applyAdminUiState();
         appendStatus("Admin logged in ✅");
     });
 
@@ -2391,14 +2400,19 @@ function bindEvents() {
             runLiveScanOnce();
         }
     });
-
-    gateThresholdEvents();
 }
 
 // ---------------- Init ----------------
 (async function init() {
+    // ✅ Force threshold UI fixed at 0.35 and disable slider
+    if (ui.threshold) {
+        ui.threshold.value = String(FIXED_MATCH_THRESHOLD);
+        ui.threshold.min = String(FIXED_MATCH_THRESHOLD);
+        ui.threshold.max = String(FIXED_MATCH_THRESHOLD);
+        ui.threshold.step = "0.01";
+        ui.threshold.disabled = true;
+    }
     updateThresholdUI();
-    if (ui.threshold) lastThresholdValue = Number(ui.threshold.value);
 
     if (ui.datePicker) ui.datePicker.value = isoDateLocal();
 
@@ -2449,6 +2463,12 @@ function bindEvents() {
             `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${
                 PERF.LIVE_SCAN_INTERVAL_MS
             }ms, landmarks=${PERF.DRAW_LANDMARKS ? "ON" : "OFF"}`
+        );
+
+        appendStatus(
+            `✅ Threshold fixed at ${FIXED_MATCH_THRESHOLD.toFixed(
+                2
+            )} (slider disabled)`
         );
     } catch (e) {
         setModelPill("error", "Model load failed");

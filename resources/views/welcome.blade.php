@@ -9,10 +9,74 @@
 
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
+    <!-- ✅ SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
     <script defer src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script>
+        // Create a themed Swal instance (do NOT overwrite window.Swal)
+        window.SwalTheme = (function() {
+            if (!window.Swal) return null;
+
+            return window.Swal.mixin({
+                background: "#0b1220",
+                color: "#e2e8f0",
+                confirmButtonColor: "#34d399", // emerald
+                cancelButtonColor: "#334155", // slate
+            });
+        })();
+
+        /**
+         * Use this from app.js:
+         *   const ok = await window.confirmTimeInSwal(name)
+         */
+        window.confirmTimeInSwal = async function(name) {
+            if (!window.SwalTheme) {
+                return window.confirm(`Confirm TIME-IN?\n\nName: ${name || "—"}`);
+            }
+
+            const result = await window.SwalTheme.fire({
+                title: "Confirm Check-In?",
+                html: `
+                    <div style="font-size:14px;line-height:1.4">
+                        <div style="opacity:.85">Detected employee:</div>
+                        <div style="margin-top:6px;font-weight:700;color:#34d399">
+                            ${String(name || "—")}
+                        </div>
+                    </div>
+                `,
+                icon: "question",
+                showCancelButton: true,
+                confirmButtonText: "Yes, Check-In",
+                cancelButtonText: "Cancel",
+                reverseButtons: true,
+                focusCancel: true,
+            });
+
+            return !!result.isConfirmed;
+        };
+
+        /**
+         * Optional toast helper:
+         *   window.toastSwal("Saved!", "success")
+         */
+        window.toastSwal = function(title, icon = "success") {
+            if (!window.SwalTheme) return;
+
+            return window.SwalTheme.fire({
+                toast: true,
+                position: "top-end",
+                icon,
+                title,
+                showConfirmButton: false,
+                timer: 1800,
+                timerProgressBar: true,
+            });
+        };
+    </script>
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -91,7 +155,6 @@
                             <video id="video" class="block w-full h-auto" autoplay muted playsinline></video>
                             <canvas id="overlay" class="pointer-events-none absolute inset-0 h-full w-full"></canvas>
 
-                            <!-- Optional subtle overlay label (no JS needed) -->
                             <div
                                 class="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-black/40 px-3 py-1 text-[11px] text-slate-200 ring-1 ring-white/10">
                                 <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
@@ -107,7 +170,6 @@
                                 <span id="liveDetectedName" class="ml-1 font-semibold text-emerald-300">—</span>
                             </div>
 
-                            <!-- Space for future: confidence / cooldown (optional) -->
                             <div class="hidden sm:flex items-center gap-2 text-[11px] text-slate-400">
                                 <span
                                     class="inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-2 ring-1 ring-white/10">
@@ -137,7 +199,6 @@
                                 </button>
                             </div>
 
-                            <!-- Big confirmation/toast area (you can still use toastList for JS toasts) -->
                             <div
                                 class="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-300 ring-1 ring-white/10">
                                 <span class="text-slate-400">Last action:</span>
@@ -150,7 +211,6 @@
 
             <!-- Sidebar: Today + Recent -->
             <aside class="lg:col-span-4 space-y-6">
-                <!-- Today / Date picker -->
                 <div class="rounded-3xl border border-white/10 bg-white/5 shadow ring-1 ring-white/10">
                     <div class="p-4 sm:p-5 border-b border-white/10">
                         <div class="flex items-center justify-between gap-3">
@@ -178,7 +238,6 @@
                         </div>
                     </div>
 
-                    <!-- Quick stats (optional placeholders) -->
                     <div class="p-4 sm:p-5">
                         <div class="grid grid-cols-3 gap-3">
                             <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3 ring-1 ring-white/10">
@@ -195,7 +254,6 @@
                             </div>
                         </div>
 
-                        <!-- Recent activity list (your JS can populate separately if you want) -->
                         <div class="mt-4">
                             <div class="flex items-center justify-between">
                                 <div class="text-sm font-semibold">Recent activity</div>
@@ -211,7 +269,6 @@
                     </div>
                 </div>
 
-                <!-- Toast column (kept) -->
                 <div id="toastList" class="space-y-3"></div>
             </aside>
 
@@ -225,7 +282,6 @@
                             <div class="text-xs text-slate-300">Name, time in/out, and photo per entry.</div>
                         </div>
 
-                        <!-- Export group (Admin can also see more inside drawer) -->
                         <div class="flex flex-wrap items-center gap-2">
                             <button id="btnDownloadDayXlsx" type="button"
                                 class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 ring-1 ring-white/10">
@@ -259,16 +315,13 @@
             </section>
         </div>
 
-        <!-- ADMIN DRAWER (same page, hidden by default) -->
-        <!-- Note: Your existing JS can toggle `hidden` on #adminDrawerBackdrop and translate class on #adminDrawer -->
+        <!-- ADMIN DRAWER -->
         <div id="adminDrawerBackdrop" class="fixed inset-0 z-50 hidden">
             <div class="absolute inset-0 bg-black/60"></div>
 
             <div id="adminDrawer"
-                class="absolute right-0 top-0 h-full w-full max-w-md bg-slate-950 border-l border-white/10 shadow-2xl
-                       translate-x-0 sm:translate-x-0">
+                class="absolute right-0 top-0 h-full w-full max-w-md bg-slate-950 border-l border-white/10 shadow-2xl">
                 <div class="h-full flex flex-col">
-                    <!-- Drawer header -->
                     <div class="p-4 border-b border-white/10 flex items-center justify-between">
                         <div>
                             <div class="text-sm font-semibold">Admin Panel</div>
@@ -280,9 +333,7 @@
                         </button>
                     </div>
 
-                    <!-- Drawer body -->
                     <div class="flex-1 overflow-auto p-4 space-y-4" id="adminPanel">
-                        <!-- Enroll -->
                         <div class="rounded-2xl border border-white/10 bg-white/5 p-3 ring-1 ring-white/10">
                             <div>
                                 <div class="text-sm font-semibold">Enroll person</div>
@@ -331,38 +382,32 @@
                             </div>
                         </div>
 
-                        <!-- Registered employees -->
                         <div class="rounded-2xl border border-white/10 bg-white/5 p-3 ring-1 ring-white/10">
                             <div class="flex items-center justify-between gap-3">
                                 <div>
-                                    <div class="text-sm font-semibold">Registered Employees</div>
-                                    <div class="text-xs text-slate-400">Local profiles currently enrolled.</div>
+                                    <div class="text-sm font-semibold">Registered Employee</div>
                                 </div>
                                 <div class="text-[11px] text-slate-400"><span id="rosterCount">0</span> people</div>
                             </div>
                             <div id="adminRosterList" class="mt-3 grid gap-2"></div>
                         </div>
 
-                        <!-- Threshold -->
                         <div class="rounded-2xl border border-white/10 bg-white/5 p-3 ring-1 ring-white/10">
                             <div class="text-xs text-slate-300">Threshold (lower = stricter)</div>
 
                             <div class="mt-2 flex items-center gap-3">
-                                <input id="threshold" type="range" min="0.35" max="0.75" step="0.01"
-                                    value="0.55" class="w-full">
+                                <input id="threshold" type="range" min="0.35" max="0.35" step="0.01"
+                                    value="0.35" class="w-full" disabled>
                                 <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.55</div>
                             </div>
                             <div class="mt-1 text-[11px] text-slate-400">Tip: 0.50–0.60 is a common starting range.
                             </div>
                         </div>
 
-                        <!-- System console -->
                         <div class="rounded-2xl border border-white/10 bg-white/5 p-3 ring-1 ring-white/10">
                             <div class="flex items-start justify-between gap-3">
                                 <div>
-                                    <div class="text-sm font-semibold">System console</div>
-                                    <div class="text-xs text-slate-400">Local demo only. Photos saved per log (browser
-                                        storage limits apply).</div>
+                                    <div class="text-sm font-semibold">System message</div>
                                 </div>
 
                                 <div class="flex items-center gap-2">
@@ -385,7 +430,7 @@
             </div>
         </div>
 
-        <!-- Admin Password Modal (kept) -->
+        <!-- Admin Password Modal -->
         <div id="pwModal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/60 p-4">
             <div
                 class="w-full max-w-sm rounded-2xl border border-white/10 bg-slate-950 p-4 shadow-xl ring-1 ring-white/10">
@@ -412,8 +457,7 @@
         <footer class="mt-8 text-center text-[11px] text-slate-500"></footer>
     </main>
 
-    <!-- Tiny glue (optional): if you don't want to edit your main JS yet, this makes the drawer open/close.
-         Remove if you already handle toggles in resources/js/app.js -->
+    <!-- Drawer open/close -->
     <script>
         (function() {
             const openBtn = document.getElementById('btnAdminToggle');
@@ -428,9 +472,9 @@
             openBtn.addEventListener('click', open);
             closeBtn.addEventListener('click', close);
 
-            // click outside to close
             backdrop.addEventListener('click', (e) => {
-                if (e.target === backdrop) close();
+                // close when clicking the dimmed overlay only
+                if (e.target === backdrop || e.target.classList.contains('bg-black/60')) close();
             });
         })();
     </script>
