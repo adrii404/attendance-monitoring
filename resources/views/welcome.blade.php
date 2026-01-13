@@ -322,6 +322,7 @@
             <div id="adminDrawer"
                 class="absolute right-0 top-0 h-full w-full max-w-md bg-slate-950 border-l border-white/10 shadow-2xl">
                 <div class="h-full flex flex-col">
+                    <!-- Header stays -->
                     <div class="p-4 border-b border-white/10 flex items-center justify-between">
                         <div>
                             <div class="text-sm font-semibold">Admin Panel</div>
@@ -333,78 +334,46 @@
                         </button>
                     </div>
 
-                    <div class="flex-1 overflow-auto p-4 space-y-4" id="adminPanel">
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-3 ring-1 ring-white/10">
-                            <div>
-                                <div class="text-sm font-semibold">Enroll person</div>
-                                <div class="text-xs text-slate-300">Add a face profile locally (name + descriptor).
-                                </div>
-                            </div>
+                    <!-- Body -->
+                    <div class="flex-1 overflow-y-auto p-4 space-y-4">
 
-                            <div class="mt-3 grid gap-2">
-                                <label class="text-xs text-slate-300">Full name</label>
-                                <input id="enrollName" type="text" placeholder="e.g., Juan Dela Cruz"
-                                    class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
-
-                                <input id="enrollContact" type="tel" placeholder="Contact Number"
-                                    class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
-
-                                <input id="enrollPassword" type="password" placeholder="Password"
-                                    class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
-
-                                <select id="enrollRole"
-                                    class="w-full rounded-xl bg-black border border-white/10 p-3 text-slate-100">
-                                    <option value="">Select role</option>
-                                    <option value="1">ADMIN</option>
-                                    <option value="2">IT</option>
-                                    <option value="3">CSR</option>
-                                    <option value="4">TECHNICAL</option>
-                                </select>
-
-                                <div class="flex flex-wrap items-center gap-2 pt-1">
-                                    <button id="btnEnroll" type="button"
-                                        class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 ring-1 ring-emerald-400/30">
-                                        Capture & Save
-                                    </button>
-
-                                    <button id="btnExportProfiles" type="button"
-                                        class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 ring-1 ring-white/10">
-                                        Export
-                                    </button>
-
-                                    <label
-                                        class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 cursor-pointer ring-1 ring-white/10">
-                                        Import
-                                        <input id="importProfiles" type="file" accept="application/json"
-                                            class="hidden" />
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-3 ring-1 ring-white/10">
+                        <!-- ✅ Admin: Registered People Status -->
+                        <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-3 ring-1 ring-white/10">
                             <div class="flex items-center justify-between gap-3">
                                 <div>
                                     <div class="text-sm font-semibold">Registered Employee</div>
+                                    <div class="text-xs text-slate-400">
+                                        Set daily status per employee (saved locally per selected date).
+                                    </div>
+                                    <div class="mt-1 text-[11px] text-slate-500">
+                                        Date: <span id="rosterDateLabel">—</span>
+                                    </div>
                                 </div>
-                                <div class="text-[11px] text-slate-400"><span id="rosterCount">0</span> people</div>
+                                <div class="text-[11px] text-slate-400">
+                                    <span id="rosterCount">0</span> people
+                                </div>
                             </div>
+
                             <div id="adminRosterList" class="mt-3 grid gap-2"></div>
                         </div>
 
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-3 ring-1 ring-white/10">
-                            <div class="text-xs text-slate-300">Threshold (lower = stricter)</div>
+                        <!-- ✅ Threshold -->
+                        <div class="rounded-2xl border border-white/10 bg-slate-950/50 p-3 ring-1 ring-white/10">
+                            <div class="text-xs text-slate-300">Threshold (lower = stricter) — Admin only</div>
 
                             <div class="mt-2 flex items-center gap-3">
-                                <input id="threshold" type="range" min="0.35" max="0.35" step="0.01"
-                                    value="0.35" class="w-full" disabled>
+                                <input id="threshold" type="range" min="0.35" max="0.75" step="0.01"
+                                    value="0.55" class="w-full" disabled>
                                 <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.55</div>
                             </div>
-                            <div class="mt-1 text-[11px] text-slate-400">Tip: 0.50–0.60 is a common starting range.
+
+                            <div class="mt-1 text-[11px] text-slate-400">
+                                Tip: 0.50–0.60 is a common starting range.
                             </div>
                         </div>
 
-                        <div class="rounded-2xl border border-white/10 bg-white/5 p-3 ring-1 ring-white/10">
+                        <!-- ✅ System message -->
+                        <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-3 ring-1 ring-white/10">
                             <div class="flex items-start justify-between gap-3">
                                 <div>
                                     <div class="text-sm font-semibold">System message</div>
@@ -423,10 +392,39 @@
                             </div>
 
                             <pre id="status"
-                                class="mt-3 whitespace-pre-wrap break-words text-xs text-slate-200/90 max-h-[18.5em] overflow-y-auto pr-2 rounded-xl bg-black/10 ring-1 ring-white/10"></pre>
+                                class="mt-3 whitespace-pre-wrap break-words text-xs text-slate-200/90
+                       max-h-[18.5em] overflow-y-auto pr-2 rounded-xl bg-black/10
+                       ring-1 ring-white/10"></pre>
+                        </div>
+
+                        <!-- ✅ Admin quick export / clear (no duplicate IDs) -->
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button id="btnDownloadDayXlsxAdmin" type="button"
+                                class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 ring-1 ring-white/10">
+                                Download Excel (selected day)
+                            </button>
+
+                            <button id="btnDownloadDayJsonAdmin" type="button"
+                                class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 ring-1 ring-white/10">
+                                Download JSON + Photos
+                            </button>
+
+                            <button id="btnClearDayAdmin" type="button"
+                                class="rounded-xl bg-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/30 ring-1 ring-rose-500/20">
+                                Clear selected day
+                            </button>
+                        </div>
+
+                        <!-- ✅ Admin Access button inside drawer (optional but matches your snippet) -->
+                        <div class="flex justify-end pt-2">
+                            <button id="btnAdminAccess" type="button"
+                                class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 ring-1 ring-white/10">
+                                Admin Access
+                            </button>
                         </div>
                     </div>
                 </div>
+
             </div>
         </div>
 
@@ -457,27 +455,238 @@
         <footer class="mt-8 text-center text-[11px] text-slate-500"></footer>
     </main>
 
-    <!-- Drawer open/close -->
     <script>
         (function() {
+            const backdrop = document.getElementById('adminDrawerBackdrop');
             const openBtn = document.getElementById('btnAdminToggle');
             const closeBtn = document.getElementById('btnAdminClose');
-            const backdrop = document.getElementById('adminDrawerBackdrop');
 
-            if (!openBtn || !closeBtn || !backdrop) return;
+            const pwModal = document.getElementById('pwModal');
+            const pwTitle = document.getElementById('pwModalTitle');
+            const pwDesc = document.getElementById('pwModalDesc');
+            const pwInput = document.getElementById('pwModalInput');
+            const pwCancel = document.getElementById('pwModalCancel');
+            const pwOk = document.getElementById('pwModalOk');
 
-            const open = () => backdrop.classList.remove('hidden');
-            const close = () => backdrop.classList.add('hidden');
+            const btnAdminAccess = document.getElementById('btnAdminAccess');
+            const btnChangePw = document.getElementById('btnChangePw');
+            const btnClearAll = document.getElementById('btnClearAll');
+            const statusEl = document.getElementById('status');
 
-            openBtn.addEventListener('click', open);
-            closeBtn.addEventListener('click', close);
+            const threshold = document.getElementById('threshold');
+            const thresholdVal = document.getElementById('thresholdVal');
 
-            backdrop.addEventListener('click', (e) => {
-                // close when clicking the dimmed overlay only
-                if (e.target === backdrop || e.target.classList.contains('bg-black/60')) close();
+            // Proxy buttons (no duplicate IDs)
+            const btnXlsxAdmin = document.getElementById('btnDownloadDayXlsxAdmin');
+            const btnJsonAdmin = document.getElementById('btnDownloadDayJsonAdmin');
+            const btnClearDayAdmin = document.getElementById('btnClearDayAdmin');
+
+            // Your existing buttons (already on page)
+            const btnXlsx = document.getElementById('btnDownloadDayXlsx');
+            const btnJson = document.getElementById('btnDownloadDayJson');
+            const btnClearDay = document.getElementById('btnClearDay');
+
+            if (!backdrop || !openBtn || !closeBtn) return;
+
+            const LS_ADMIN_UNLOCK = 'fa_admin_unlocked';
+            const LS_ADMIN_PW = 'fa_admin_password';
+            const LS_THRESHOLD = 'fa_threshold';
+
+            function logStatus(msg) {
+                if (!statusEl) return;
+                const ts = new Date().toLocaleString();
+                statusEl.textContent = `[${ts}] ${msg}\n` + (statusEl.textContent || '');
+            }
+
+            function isAdminUnlocked() {
+                return localStorage.getItem(LS_ADMIN_UNLOCK) === '1';
+            }
+
+            function setAdminUnlocked(val) {
+                localStorage.setItem(LS_ADMIN_UNLOCK, val ? '1' : '0');
+                if (threshold) threshold.disabled = !val;
+                logStatus(val ? 'Admin unlocked.' : 'Admin locked.');
+            }
+
+            function openDrawer() {
+                backdrop.classList.remove('hidden');
+            }
+
+            function closeDrawer() {
+                backdrop.classList.add('hidden');
+            }
+
+            function openPwModal(mode = 'login') {
+                if (!pwModal) return;
+                pwModal.classList.remove('hidden');
+                pwModal.classList.add('flex');
+
+                pwInput.value = '';
+                pwInput.focus();
+
+                if (mode === 'set') {
+                    pwTitle.textContent = 'Set/Change admin password';
+                    pwDesc.textContent = 'Enter new password';
+                } else {
+                    pwTitle.textContent = 'Admin password';
+                    pwDesc.textContent = 'Enter password';
+                }
+
+                pwModal.dataset.mode = mode;
+            }
+
+            function closePwModal() {
+                if (!pwModal) return;
+                pwModal.classList.add('hidden');
+                pwModal.classList.remove('flex');
+                pwInput.value = '';
+                delete pwModal.dataset.mode;
+            }
+
+            function ensureAdminThenOpenDrawer() {
+                if (isAdminUnlocked()) {
+                    openDrawer();
+                    return;
+                }
+                openPwModal('login');
+            }
+
+            // Load threshold default
+            if (threshold && thresholdVal) {
+                const saved = localStorage.getItem(LS_THRESHOLD);
+                const v = saved ? Number(saved) : Number(threshold.value || 0.55);
+                threshold.value = String(v);
+                thresholdVal.textContent = v.toFixed(2);
+            }
+
+            // Threshold change
+            threshold?.addEventListener('input', () => {
+                const v = Number(threshold.value);
+                thresholdVal.textContent = v.toFixed(2);
+                localStorage.setItem(LS_THRESHOLD, String(v));
             });
+
+            // Open / Close drawer
+            openBtn.addEventListener('click', ensureAdminThenOpenDrawer);
+            closeBtn.addEventListener('click', closeDrawer);
+            backdrop.addEventListener('click', (e) => {
+                if (e.target === backdrop || e.target.classList.contains('bg-black/60')) closeDrawer();
+            });
+
+            // Admin access button inside drawer
+            btnAdminAccess?.addEventListener('click', () => {
+                if (!isAdminUnlocked()) openPwModal('login');
+                else logStatus('Admin already unlocked.');
+            });
+
+            // Set/Change password
+            btnChangePw?.addEventListener('click', () => openPwModal('set'));
+
+            // Password modal buttons
+            pwCancel?.addEventListener('click', closePwModal);
+
+            pwOk?.addEventListener('click', async () => {
+                const mode = pwModal?.dataset?.mode || 'login';
+                const input = (pwInput.value || '').trim();
+
+                if (!input) {
+                    logStatus('Password input is empty.');
+                    return;
+                }
+
+                if (mode === 'set') {
+                    localStorage.setItem(LS_ADMIN_PW, input);
+                    setAdminUnlocked(true);
+                    closePwModal();
+                    openDrawer();
+                    logStatus('Admin password updated.');
+                    return;
+                }
+
+                // login mode
+                const savedPw = localStorage.getItem(LS_ADMIN_PW);
+
+                // If no password set yet, treat first login as set (simple local setup)
+                if (!savedPw) {
+                    localStorage.setItem(LS_ADMIN_PW, input);
+                    setAdminUnlocked(true);
+                    closePwModal();
+                    openDrawer();
+                    logStatus('Admin password created (first time).');
+                    return;
+                }
+
+                if (input === savedPw) {
+                    setAdminUnlocked(true);
+                    closePwModal();
+                    openDrawer();
+                    logStatus('Admin login success.');
+                } else {
+                    setAdminUnlocked(false);
+                    logStatus('Admin login failed: incorrect password.');
+
+                    if (window.SwalTheme) {
+                        window.SwalTheme.fire({
+                            icon: 'error',
+                            title: 'Wrong password',
+                            text: 'Please try again.',
+                        });
+                    } else {
+                        alert('Wrong password. Please try again.');
+                    }
+                }
+            });
+
+            // Reset local data (with confirmation)
+            btnClearAll?.addEventListener('click', async () => {
+                const doIt = window.SwalTheme ?
+                    (await window.SwalTheme.fire({
+                        icon: 'warning',
+                        title: 'Reset local data?',
+                        text: 'This will remove locally saved roster/logs/password/threshold on this browser.',
+                        showCancelButton: true,
+                        confirmButtonText: 'Yes, reset',
+                        cancelButtonText: 'Cancel',
+                        reverseButtons: true,
+                    })).isConfirmed :
+                    confirm(
+                        'Reset local data? This removes local roster/logs/password/threshold on this browser.'
+                        );
+
+                if (!doIt) return;
+
+                // Remove only known keys (safer than localStorage.clear())
+                [
+                    LS_ADMIN_UNLOCK,
+                    LS_ADMIN_PW,
+                    LS_THRESHOLD,
+                    'fa_roster',
+                    'fa_logs',
+                    'fa_photos'
+                ].forEach(k => localStorage.removeItem(k));
+
+                setAdminUnlocked(false);
+
+                if (threshold && thresholdVal) {
+                    threshold.value = '0.55';
+                    thresholdVal.textContent = '0.55';
+                    threshold.disabled = true;
+                }
+
+                logStatus('Local data reset done.');
+            });
+
+            // Proxy admin export/clear to existing buttons
+            btnXlsxAdmin?.addEventListener('click', () => btnXlsx?.click());
+            btnJsonAdmin?.addEventListener('click', () => btnJson?.click());
+            btnClearDayAdmin?.addEventListener('click', () => btnClearDay?.click());
+
+            // Initial state
+            setAdminUnlocked(isAdminUnlocked());
+            logStatus('System ready.');
         })();
     </script>
+
 </body>
 
 </html>
