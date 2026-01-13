@@ -57,14 +57,28 @@ function escapeHtml(str) {
         .replace(/'/g, "&#039;");
 }
 
+const ROLE_BY_ID = {
+    1: "ADMIN",
+    2: "IT",
+    3: "CSR",
+    4: "TECHNICAL",
+};
+
+function roleNameFromId(id) {
+    const n = Number(id || 0);
+    return ROLE_BY_ID[n] || "";
+}
+
 function pickRoleName(p) {
     return (
         p?.role_name ||
         p?.role?.name ||
+        p?.role || // if API returns role as a string
         p?.user?.role_name ||
         p?.user?.role?.name ||
         p?.user_role ||
         p?.role_text ||
+        roleNameFromId(p?.role_id ?? p?.user?.role_id) || // ✅ fallback from role_id
         ""
     );
 }
@@ -251,7 +265,9 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
       <p><span class="font-bold">Time: </span>${escapeHtml(time || "—")}</p>
       <p>
         <span class="font-bold">Action:</span>
-        <span class="${actionClass} font-semibold">${escapeHtml(action || "—")}</span>
+        <span class="${actionClass} font-semibold">${escapeHtml(
+        action || "—"
+    )}</span>
       </p>
     </div>
   `;
@@ -316,7 +332,11 @@ async function serverMatchDescriptor(descriptor, threshold) {
         });
 
         if (!r.ok || !r.data) {
-            lastServerMatchResult = { matched: false, user: null, distance: null };
+            lastServerMatchResult = {
+                matched: false,
+                user: null,
+                distance: null,
+            };
             return lastServerMatchResult;
         }
 
@@ -451,7 +471,12 @@ function promptPasswordModal({
     placeholder = "Password",
 } = {}) {
     return new Promise((resolve) => {
-        if (!ui.pwModal || !ui.pwModalInput || !ui.pwModalOk || !ui.pwModalCancel) {
+        if (
+            !ui.pwModal ||
+            !ui.pwModalInput ||
+            !ui.pwModalOk ||
+            !ui.pwModalCancel
+        ) {
             const pw = prompt(desc);
             resolve(pw === null ? null : String(pw));
             return;
@@ -591,7 +616,8 @@ function applyAdminUiState() {
     const on = isAdminLoggedIn();
 
     if (ui.adminPanel) ui.adminPanel.classList.toggle("hidden", !on);
-    if (ui.btnAdminToggle) ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
+    if (ui.btnAdminToggle)
+        ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
 
     adminUnlockedThreshold = on;
 
@@ -625,7 +651,10 @@ function getProfiles() {
 
 function saveProfiles(profiles) {
     const r = safeSetLocalStorage(STORAGE_PROFILES, JSON.stringify(profiles));
-    if (!r.ok) appendStatus("Storage warning: Failed to save profiles (quota/storage error).");
+    if (!r.ok)
+        appendStatus(
+            "Storage warning: Failed to save profiles (quota/storage error)."
+        );
 }
 
 // ---------------- Logs (UI-only quick view; DB is the truth) ----------------
@@ -637,7 +666,10 @@ function getLogs() {
 
 function saveLogs(logs) {
     const r = safeSetLocalStorage(STORAGE_LOGS, JSON.stringify(logs));
-    if (!r.ok) appendStatus("Storage warning: Failed to save logs (quota/storage error).");
+    if (!r.ok)
+        appendStatus(
+            "Storage warning: Failed to save logs (quota/storage error)."
+        );
 }
 
 function getLogsForDate(dateStr) {
@@ -723,7 +755,9 @@ async function testModelBase(base) {
 
     const res = await fetch(url, { cache: "no-store" });
     if (!res.ok)
-        throw new Error(`Model test failed: ${res.status} ${res.statusText} @ ${url}`);
+        throw new Error(
+            `Model test failed: ${res.status} ${res.statusText} @ ${url}`
+        );
 
     await res.json();
     return base;
@@ -749,7 +783,8 @@ async function pickWorkingModelBase() {
 
 // ---------------- Face API setup ----------------
 async function loadModels() {
-    if (!faceapi) throw new Error("face-api.js not loaded (window.faceapi missing)");
+    if (!faceapi)
+        throw new Error("face-api.js not loaded (window.faceapi missing)");
 
     setModelPill("loading", "Loading models…");
     appendStatus("Loading face-api models…");
@@ -761,7 +796,9 @@ async function loadModels() {
         await faceapi.nets.faceLandmark68Net.loadFromUri(base);
         await faceapi.nets.faceRecognitionNet.loadFromUri(base);
     } catch (e) {
-        throw new Error(`Model download/load failed from "${base}": ${e?.message || e}`);
+        throw new Error(
+            `Model download/load failed from "${base}": ${e?.message || e}`
+        );
     }
 
     modelsReady = true;
@@ -902,7 +939,12 @@ async function runLiveScanOnce() {
         if (count === 0) {
             clearOverlay();
             if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
-            liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+            liveSingle = {
+                matched: false,
+                userId: null,
+                name: null,
+                updatedAt: nowMs,
+            };
             resetScanProgress();
             return;
         }
@@ -912,8 +954,14 @@ async function runLiveScanOnce() {
         if (count > 1) {
             for (let i = 0; i < count; i++) labels[i] = "Multiple faces";
             drawResultsWithLabels(results, labels, { strokeStyle: RED });
-            if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Multiple faces";
-            liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+            if (ui.liveDetectedName)
+                ui.liveDetectedName.textContent = "Multiple faces";
+            liveSingle = {
+                matched: false,
+                userId: null,
+                name: null,
+                updatedAt: nowMs,
+            };
             resetScanProgress();
             return;
         }
@@ -924,8 +972,14 @@ async function runLiveScanOnce() {
         if (!d) {
             labels[0] = "Face detected";
             drawResultsWithLabels(results, labels, { strokeStyle: BLUE });
-            if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Face detected";
-            liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+            if (ui.liveDetectedName)
+                ui.liveDetectedName.textContent = "Face detected";
+            liveSingle = {
+                matched: false,
+                userId: null,
+                name: null,
+                updatedAt: nowMs,
+            };
             resetScanProgress();
             return;
         }
@@ -949,7 +1003,12 @@ async function runLiveScanOnce() {
                 const elapsed = nowMs - scanProgressStartAt;
                 scanProgressPct = Math.max(
                     0,
-                    Math.min(100, Math.round((elapsed / PERF.AUTO_CHECKIN_INTERVAL_MS) * 100))
+                    Math.min(
+                        100,
+                        Math.round(
+                            (elapsed / PERF.AUTO_CHECKIN_INTERVAL_MS) * 100
+                        )
+                    )
                 );
             } else {
                 scanProgressPct = 0;
@@ -962,16 +1021,28 @@ async function runLiveScanOnce() {
             const labelText = `${resp.user.name} ${scanProgressPct}%`;
             labels[0] = labelText;
 
-            if (ui.liveDetectedName) ui.liveDetectedName.textContent = labelText;
+            if (ui.liveDetectedName)
+                ui.liveDetectedName.textContent = labelText;
 
-            liveSingle = { matched: true, userId: uid, name: resp.user.name, updatedAt: nowMs };
+            liveSingle = {
+                matched: true,
+                userId: uid,
+                name: resp.user.name,
+                updatedAt: nowMs,
+            };
 
             drawResultsWithLabels(results, labels, { strokeStyle });
         } else {
             labels[0] = "Not registered";
-            if (ui.liveDetectedName) ui.liveDetectedName.textContent = "Not registered";
+            if (ui.liveDetectedName)
+                ui.liveDetectedName.textContent = "Not registered";
 
-            liveSingle = { matched: false, userId: null, name: null, updatedAt: nowMs };
+            liveSingle = {
+                matched: false,
+                userId: null,
+                name: null,
+                updatedAt: nowMs,
+            };
             resetScanProgress();
             drawResultsWithLabels(results, labels, { strokeStyle: RED });
         }
@@ -984,7 +1055,10 @@ async function runLiveScanOnce() {
 // ---------------- Live loop control ----------------
 function startLiveLoop() {
     if (liveTimer) return;
-    liveTimer = setInterval(() => runLiveScanOnce(), PERF.LIVE_SCAN_INTERVAL_MS);
+    liveTimer = setInterval(
+        () => runLiveScanOnce(),
+        PERF.LIVE_SCAN_INTERVAL_MS
+    );
 }
 
 function stopLiveLoop() {
@@ -1047,7 +1121,9 @@ async function startCamera() {
     unlockSpeech();
 
     if (!navigator.mediaDevices?.getUserMedia) {
-        setStatus("Your browser does not support camera access (getUserMedia).");
+        setStatus(
+            "Your browser does not support camera access (getUserMedia)."
+        );
         return;
     }
 
@@ -1095,7 +1171,12 @@ function stopCamera() {
     appendStatus("Camera stopped.");
     if (ui.liveDetectedName) ui.liveDetectedName.textContent = "—";
 
-    liveSingle = { matched: false, userId: null, name: null, updatedAt: Date.now() };
+    liveSingle = {
+        matched: false,
+        userId: null,
+        name: null,
+        updatedAt: Date.now(),
+    };
 }
 
 async function flipCamera() {
@@ -1122,24 +1203,28 @@ function extractProfilesArray(payload) {
     if (Array.isArray(payload.profiles)) return payload.profiles;
     if (Array.isArray(payload.data)) return payload.data;
 
-    if (payload.profiles && Array.isArray(payload.profiles.data)) return payload.profiles.data;
-    if (payload.data && Array.isArray(payload.data.data)) return payload.data.data;
+    if (payload.profiles && Array.isArray(payload.profiles.data))
+        return payload.profiles.data;
+    if (payload.data && Array.isArray(payload.data.data))
+        return payload.data.data;
 
     return [];
 }
 
 function normalizeProfile(p) {
-    // supports multiple possible property names / nesting
     const user_id = p?.user_id ?? p?.id ?? p?.user?.id ?? "";
-    const name = p?.name ?? p?.user_name ?? p?.user?.name ?? (user_id ? `User ${user_id}` : "");
-    const role =
-        p?.role_name ??
-        p?.role?.name ??
-        p?.user?.role_name ??
-        p?.user?.role?.name ??
-        "";
+    const name =
+        p?.name ??
+        p?.user_name ??
+        p?.user?.name ??
+        (user_id ? `User ${user_id}` : "");
 
-    const key = user_id != null && String(user_id) !== "" ? String(user_id) : String(name || "");
+    const role = pickRoleName(p) || "";
+
+    const key =
+        user_id != null && String(user_id) !== ""
+            ? String(user_id)
+            : String(name || "");
     return {
         key,
         user_id: user_id ?? "",
@@ -1217,7 +1302,9 @@ async function fetchAllRegisteredPeople() {
 }
 
 function roleSortKey(role) {
-    const r = String(role || "").trim().toUpperCase();
+    const r = String(role || "")
+        .trim()
+        .toUpperCase();
     const order = { ADMIN: 1, IT: 2, CSR: 3, TECHNICAL: 4 };
     return order[r] ?? 999;
 }
@@ -1272,11 +1359,15 @@ async function renderAdminRoster() {
 
         row.innerHTML = `
             <div class="min-w-0">
-                <div class="text-sm font-semibold truncate">${escapeHtml(p.name)}</div>
+                <div class="text-sm font-semibold truncate">${escapeHtml(
+                    p.name
+                )}</div>
                 <div class="text-[11px] text-slate-400 truncate">
                     ${escapeHtml(p.role || "—")}
                     <span class="text-slate-500">•</span>
-                    <span class="font-mono text-slate-500">${escapeHtml(p.source)}</span>
+                    <span class="font-mono text-slate-500">${escapeHtml(
+                        p.source
+                    )}</span>
                 </div>
             </div>
 
@@ -1330,7 +1421,8 @@ async function renderProfiles() {
         }
 
         for (const p of profiles) {
-            const name = p.name || (p.user_id ? `User ${p.user_id}` : "Unknown");
+            const name =
+                p.name || (p.user_id ? `User ${p.user_id}` : "Unknown");
             const roleName = pickRoleName(p);
 
             const row = document.createElement("div");
@@ -1339,7 +1431,9 @@ async function renderProfiles() {
 
             row.innerHTML = `
                 <div class="min-w-0">
-                    <div class="text-sm font-semibold truncate">${escapeHtml(name)}</div>
+                    <div class="text-sm font-semibold truncate">${escapeHtml(
+                        name
+                    )}</div>
 
                     <!-- ✅ ROLE BELOW NAME -->
                     <div class="text-[11px] text-slate-400 truncate">
@@ -1383,7 +1477,9 @@ async function renderProfiles() {
 
         row.innerHTML = `
             <div class="min-w-0">
-                <div class="text-sm font-semibold truncate">${escapeHtml(name)}</div>
+                <div class="text-sm font-semibold truncate">${escapeHtml(
+                    name
+                )}</div>
 
                 <!-- ✅ ROLE BELOW NAME -->
                 <div class="text-[11px] text-slate-400 truncate">
@@ -1438,7 +1534,13 @@ async function renderLogs() {
         for (const r of logs) {
             const name = r.name || "User " + r.user_id;
             if (!map.has(name)) {
-                map.set(name, { name, time_in: null, time_out: null, photo_in: null, photo_out: null });
+                map.set(name, {
+                    name,
+                    time_in: null,
+                    time_out: null,
+                    photo_in: null,
+                    photo_out: null,
+                });
             }
             const item = map.get(name);
 
@@ -1472,8 +1574,12 @@ async function renderLogs() {
             tr.className = "text-slate-200";
             tr.innerHTML = `
                 <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_in || "—")}</td>
-                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_out || "—")}</td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+                    r.time_in || "—"
+                )}</td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+                    r.time_out || "—"
+                )}</td>
                 <td class="px-3 py-2">
                   <span class="text-slate-500 text-[11px]">—</span>
                 </td>
@@ -1506,8 +1612,12 @@ async function renderLogs() {
 
         tr.innerHTML = `
           <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-          <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_in || "—")}</td>
-          <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(r.time_out || "—")}</td>
+          <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+              r.time_in || "—"
+          )}</td>
+          <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+              r.time_out || "—"
+          )}</td>
           <td class="px-3 py-2">
             ${
                 photo
@@ -1537,7 +1647,8 @@ async function enroll() {
     const roleId = Number(ui.enrollRole?.value || 0);
 
     if (!name) return appendStatus("Enroll: Please enter a name.");
-    if (!contact_number) return appendStatus("Enroll: Please enter a contact number.");
+    if (!contact_number)
+        return appendStatus("Enroll: Please enter a contact number.");
     if (!password || password.length < 8)
         return appendStatus("Enroll: Password must be at least 8 characters.");
     if (!roleId) return appendStatus("Enroll: Please select a role.");
@@ -1550,7 +1661,9 @@ async function enroll() {
     const scan = await getSingleDescriptorStrict();
     if (!scan?.descriptor) {
         if (scan?.reason === "multiple") {
-            appendStatus(`Enroll: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`);
+            appendStatus(
+                `Enroll: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
+            );
         } else {
             appendStatus("Enroll: Face not detected.");
         }
@@ -1570,7 +1683,9 @@ async function enroll() {
 
     if (matchResp.ok && matchResp.data?.matched) {
         appendStatus(
-            `Enroll blocked: Face already registered as ${matchResp.data?.user?.name || "someone"}.`
+            `Enroll blocked: Face already registered as ${
+                matchResp.data?.user?.name || "someone"
+            }.`
         );
         return;
     }
@@ -1591,7 +1706,9 @@ async function enroll() {
     if (!r.ok) {
         const msg =
             r.data?.message ||
-            (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
+            (r.data?.errors
+                ? Object.values(r.data.errors).flat().join(" ")
+                : `HTTP ${r.status}`);
         appendStatus(`Enroll failed: ${msg}`);
         return;
     }
@@ -1615,7 +1732,9 @@ async function attendance(type, opts = { auto: false }) {
     try {
         if (dateStr !== isoDateLocal()) {
             if (!isAuto) {
-                appendStatus("Range view is read-only. Set From = To to edit a single date.");
+                appendStatus(
+                    "Range view is read-only. Set From = To to edit a single date."
+                );
                 appendStatus("Check In/Out works ONLY on TODAY.");
             }
             return;
@@ -1634,7 +1753,8 @@ async function attendance(type, opts = { auto: false }) {
         const threshold = Number(ui.threshold?.value ?? 0.55);
 
         if (!isSelectedDateToday()) {
-            if (!isAuto) appendStatus("Check In/Out is disabled for past dates.");
+            if (!isAuto)
+                appendStatus("Check In/Out is disabled for past dates.");
             return;
         }
 
@@ -1649,7 +1769,9 @@ async function attendance(type, opts = { auto: false }) {
         if (!scan?.descriptor) {
             if (!isAuto) {
                 if (scan?.reason === "multiple") {
-                    appendStatus(`${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`);
+                    appendStatus(
+                        `${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
+                    );
                 } else {
                     appendStatus(`${type}: Face not detected.`);
                 }
@@ -1657,7 +1779,10 @@ async function attendance(type, opts = { auto: false }) {
             return;
         }
 
-        const photo = capturePhotoDataUrlScaled(PERF.PHOTO_LOG_MAX_WIDTH, PERF.PHOTO_LOG_QUALITY);
+        const photo = capturePhotoDataUrlScaled(
+            PERF.PHOTO_LOG_MAX_WIDTH,
+            PERF.PHOTO_LOG_QUALITY
+        );
         const apiType = type === "check-in" ? "in" : "out";
 
         const r = await safeFetchJson("/api/attendance/clock", {
@@ -1675,7 +1800,9 @@ async function attendance(type, opts = { auto: false }) {
         if (!r.ok) {
             const msg =
                 r.data?.message ||
-                (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
+                (r.data?.errors
+                    ? Object.values(r.data.errors).flat().join(" ")
+                    : `HTTP ${r.status}`);
             if (!isAuto) appendStatus(`${type}: ${msg}`);
             return;
         }
@@ -1784,7 +1911,9 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
     const dateStr = ui.datePicker?.value || isoDateLocal();
 
     if (!window.XLSX?.utils) {
-        alert("XLSX library not loaded. (SheetJS script must load before app.js)");
+        alert(
+            "XLSX library not loaded. (SheetJS script must load before app.js)"
+        );
         return;
     }
 
@@ -1792,7 +1921,7 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
     const { people } = await fetchAllRegisteredPeople();
 
     // Build lookup maps for role/name by user_id and by name
-    const peopleById = new Map();   // user_id -> {name, role}
+    const peopleById = new Map(); // user_id -> {name, role}
     const peopleByName = new Map(); // lower(name) -> {name, role, user_id}
 
     for (const p of people) {
@@ -1801,14 +1930,20 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         const rl = String(p.role || "").trim();
 
         if (uid) peopleById.set(uid, { name: nm, role: rl });
-        if (nm) peopleByName.set(nm.toLowerCase(), { name: nm, role: rl, user_id: uid });
+        if (nm)
+            peopleByName.set(nm.toLowerCase(), {
+                name: nm,
+                role: rl,
+                user_id: uid,
+            });
     }
 
     const resolvePersonRole = (userId, name, fallbackRole = "") => {
         const uid = userId != null ? String(userId) : "";
         const nm = String(name || "").trim();
 
-        if (uid && peopleById.has(uid)) return peopleById.get(uid).role || fallbackRole || "";
+        if (uid && peopleById.has(uid))
+            return peopleById.get(uid).role || fallbackRole || "";
         if (nm) {
             const hit = peopleByName.get(nm.toLowerCase());
             if (hit?.role) return hit.role;
@@ -1829,7 +1964,8 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
             const dt = r.occurred_at ? new Date(r.occurred_at) : null;
 
             const userId = r.user_id || r.user?.id || "";
-            const name = r.name || r.user_name || (userId ? `User ${userId}` : "");
+            const name =
+                r.name || r.user_name || (userId ? `User ${userId}` : "");
             const roleFromLog =
                 r.role_name ||
                 r.role?.name ||
@@ -1849,7 +1985,9 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
                 user_id: userId,
                 device_id: r.device_id || "",
                 photo_path: r.photo_path || "",
-                photo_data_url: includePhotoDataUrl ? r.photo_data_url || "" : "",
+                photo_data_url: includePhotoDataUrl
+                    ? r.photo_data_url || ""
+                    : "",
                 meta:
                     r.meta == null
                         ? ""
@@ -1867,7 +2005,8 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
 
             return {
                 date: dateStr,
-                occurred_at: r?.occurred_at || (r?.time ? `${dateStr} ${r.time}` : ""),
+                occurred_at:
+                    r?.occurred_at || (r?.time ? `${dateStr} ${r.time}` : ""),
                 time: r?.time || "",
                 name,
                 role,
@@ -1875,7 +2014,9 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
                 user_id: userId,
                 device_id: r?.device_id || "",
                 photo_path: r?.photo_path || "",
-                photo_data_url: includePhotoDataUrl ? r?.photo_data_url || "" : "",
+                photo_data_url: includePhotoDataUrl
+                    ? r?.photo_data_url || ""
+                    : "",
                 meta:
                     r?.meta == null
                         ? ""
@@ -1907,7 +2048,9 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
 
     const makeKey = (userId, name) => {
         const uid = userId != null ? String(userId) : "";
-        const nm = String(name || "").trim().toLowerCase();
+        const nm = String(name || "")
+            .trim()
+            .toLowerCase();
         return uid ? `id:${uid}` : `name:${nm}`;
     };
 
@@ -1954,18 +2097,32 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
         if (!item.role) item.role = resolvePersonRole(uid, nm, r.role || "");
 
         const t = String(r.type || "").toLowerCase();
-        const isIn = t === "in" || t === "check-in" || t === "time-in" || t === "time_in";
-        const isOut = t === "out" || t === "check-out" || t === "time-out" || t === "time_out";
+        const isIn =
+            t === "in" ||
+            t === "check-in" ||
+            t === "time-in" ||
+            t === "time_in";
+        const isOut =
+            t === "out" ||
+            t === "check-out" ||
+            t === "time-out" ||
+            t === "time_out";
 
         if (isIn) {
-            if (!item.time_in || (r.time && r.time < item.time_in)) item.time_in = r.time || item.time_in;
+            if (!item.time_in || (r.time && r.time < item.time_in))
+                item.time_in = r.time || item.time_in;
         }
         if (isOut) {
-            if (!item.time_out || (r.time && r.time > item.time_out)) item.time_out = r.time || item.time_out;
+            if (!item.time_out || (r.time && r.time > item.time_out))
+                item.time_out = r.time || item.time_out;
         }
 
         // Keep status updated
-        item.status = getRosterStatusForExport(dateStr, item.user_id, item.name);
+        item.status = getRosterStatusForExport(
+            dateStr,
+            item.user_id,
+            item.name
+        );
     }
 
     const summary = Array.from(summaryMap.values());
@@ -1985,7 +2142,15 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
     const wb = XLSX.utils.book_new();
 
     const wsSummary = XLSX.utils.json_to_sheet(summary, {
-        header: ["date", "user_id", "name", "role", "status", "time_in", "time_out"],
+        header: [
+            "date",
+            "user_id",
+            "name",
+            "role",
+            "status",
+            "time_in",
+            "time_out",
+        ],
     });
     wsSummary["!freeze"] = { xSplit: 0, ySplit: 1 };
     XLSX.utils.book_append_sheet(wb, wsSummary, `Summary ${dateStr}`);
@@ -2011,7 +2176,6 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
     XLSX.writeFile(wb, `attendance_${dateStr}.xlsx`);
 }
 
-
 async function clearDay() {
     const ok = await requireAdmin("Clear logs for selected day");
     if (!ok) return;
@@ -2028,7 +2192,9 @@ async function clearDay() {
 }
 
 async function clearAll() {
-    const ok = await requireAdmin("Reset ALL local data (UI cache + legacy profiles)");
+    const ok = await requireAdmin(
+        "Reset ALL local data (UI cache + legacy profiles)"
+    );
     if (!ok) return;
 
     localStorage.removeItem(STORAGE_PROFILES);
@@ -2055,7 +2221,8 @@ function gateThresholdEvents() {
             applyAdminUiState();
             appendStatus("Threshold unlocked ✅ (admin)");
         } else {
-            if (lastThresholdValue !== null) setThresholdValue(lastThresholdValue);
+            if (lastThresholdValue !== null)
+                setThresholdValue(lastThresholdValue);
             appendStatus("Threshold change blocked (admin password required).");
         }
     });
@@ -2066,7 +2233,8 @@ function gateThresholdEvents() {
             updateThresholdUI();
             return;
         }
-        if (lastThresholdValue === null) lastThresholdValue = Number(ui.threshold.value);
+        if (lastThresholdValue === null)
+            lastThresholdValue = Number(ui.threshold.value);
         setThresholdValue(lastThresholdValue);
     });
 
@@ -2074,7 +2242,9 @@ function gateThresholdEvents() {
         if (adminUnlockedThreshold) {
             lastThresholdValue = Number(ui.threshold.value);
             updateThresholdUI();
-            appendStatus(`Threshold set to ${Number(ui.threshold.value).toFixed(2)}`);
+            appendStatus(
+                `Threshold set to ${Number(ui.threshold.value).toFixed(2)}`
+            );
         }
     });
 }
@@ -2097,7 +2267,11 @@ async function importProfilesFromFile(file) {
     }
 
     const cleaned = data.filter(
-        (p) => p && p.name && Array.isArray(p.descriptor) && p.descriptor.length === 128
+        (p) =>
+            p &&
+            p.name &&
+            Array.isArray(p.descriptor) &&
+            p.descriptor.length === 128
     );
 
     saveProfiles(cleaned);
@@ -2123,7 +2297,9 @@ function bindEvents() {
 
     ui.btnEnroll?.addEventListener("click", (e) => {
         e.preventDefault();
-        enroll().catch((err) => appendStatus(`Enroll error: ${err?.message || err}`));
+        enroll().catch((err) =>
+            appendStatus(`Enroll error: ${err?.message || err}`)
+        );
     });
 
     ui.btnCheckIn?.addEventListener("click", () => {
@@ -2149,15 +2325,21 @@ function bindEvents() {
     });
 
     ui.btnClearDay?.addEventListener("click", () => {
-        clearDay().catch((e) => appendStatus(`Clear-day error: ${e?.message || e}`));
+        clearDay().catch((e) =>
+            appendStatus(`Clear-day error: ${e?.message || e}`)
+        );
     });
 
     ui.btnClearAll?.addEventListener("click", () => {
-        clearAll().catch((e) => appendStatus(`Reset error: ${e?.message || e}`));
+        clearAll().catch((e) =>
+            appendStatus(`Reset error: ${e?.message || e}`)
+        );
     });
 
     ui.btnChangePw?.addEventListener("click", () => {
-        setOrChangePasswordFlow().catch((e) => appendStatus(`Password error: ${e?.message || e}`));
+        setOrChangePasswordFlow().catch((e) =>
+            appendStatus(`Password error: ${e?.message || e}`)
+        );
     });
 
     ui.btnExportProfiles?.addEventListener("click", exportProfiles);
@@ -2165,7 +2347,9 @@ function bindEvents() {
     ui.importProfiles?.addEventListener("change", (ev) => {
         const file = ev.target.files?.[0];
         if (!file) return;
-        importProfilesFromFile(file).catch((e) => appendStatus(`Import error: ${e?.message || e}`));
+        importProfilesFromFile(file).catch((e) =>
+            appendStatus(`Import error: ${e?.message || e}`)
+        );
         ev.target.value = "";
     });
 
@@ -2174,7 +2358,8 @@ function bindEvents() {
             setAdminLoggedIn(false);
             adminUnlockedThreshold = false;
 
-            if (lastThresholdValue !== null) setThresholdValue(lastThresholdValue);
+            if (lastThresholdValue !== null)
+                setThresholdValue(lastThresholdValue);
 
             applyAdminUiState();
             appendStatus("Admin logged out.");
@@ -2189,8 +2374,12 @@ function bindEvents() {
         appendStatus("Admin logged in ✅");
     });
 
-    window.addEventListener("resize", () => requestAnimationFrame(resizeOverlayToVideo));
-    ui.video?.addEventListener("loadedmetadata", () => requestAnimationFrame(resizeOverlayToVideo));
+    window.addEventListener("resize", () =>
+        requestAnimationFrame(resizeOverlayToVideo)
+    );
+    ui.video?.addEventListener("loadedmetadata", () =>
+        requestAnimationFrame(resizeOverlayToVideo)
+    );
 
     document.addEventListener("visibilitychange", () => {
         if (!PERF.PAUSE_WHEN_HIDDEN) return;
@@ -2220,7 +2409,8 @@ function bindEvents() {
                 Intl.DateTimeFormat().resolvedOptions().timeZone || "local"
             }`;
         }
-        if (ui.nowLabel) ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
+        if (ui.nowLabel)
+            ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
     };
     tickClock();
     setInterval(tickClock, 1000);
@@ -2234,7 +2424,10 @@ function bindEvents() {
 
     try {
         const ok = await waitForFaceApi();
-        if (!ok) throw new Error("face-api.js did not load (timeout). Check script tag + network.");
+        if (!ok)
+            throw new Error(
+                "face-api.js did not load (timeout). Check script tag + network."
+            );
 
         faceapi = window.faceapi;
 
@@ -2244,16 +2437,18 @@ function bindEvents() {
             "Ready. Start camera. When it detects 1 face, it will show the person's NAME on the box if registered."
         );
         appendStatus("If not registered, the box will say: Not registered.");
-        appendStatus("AUTO check-in runs every 2 seconds when 1 registered face is visible.");
+        appendStatus(
+            "AUTO check-in runs every 2 seconds when 1 registered face is visible."
+        );
         appendStatus("Check-out is MANUAL (must click the button).");
         appendStatus(
             "Check In/Out works ONLY on TODAY. You can still browse history by changing date."
         );
 
         appendStatus(
-            `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${PERF.LIVE_SCAN_INTERVAL_MS}ms, landmarks=${
-                PERF.DRAW_LANDMARKS ? "ON" : "OFF"
-            }`
+            `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${
+                PERF.LIVE_SCAN_INTERVAL_MS
+            }ms, landmarks=${PERF.DRAW_LANDMARKS ? "ON" : "OFF"}`
         );
     } catch (e) {
         setModelPill("error", "Model load failed");
