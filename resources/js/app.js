@@ -1,35 +1,7 @@
 import "./bootstrap";
 
-/* app.js (FULL) — CPU/Lite version (no GPU, 16GB RAM friendly)
- * ✅ LIVE name while detecting:
- * - If EXACTLY 1 face AND registered -> show NAME on face box + live label
- * - If face is not registered -> show "Not registered"
- * - If 2+ faces -> show "Multiple faces"
- *
- * ✅ Lite optimizations (CPU-friendly):
- * - Lower camera resolution (default 640x480 ideal)
- * - Live scan uses smaller detector inputSize + slower interval (less CPU)
- * - Live loop uses setInterval (no requestAnimationFrame busy loop)
- * - Landmarks drawing is OFF by default (big CPU saver) — toggle via PERF.DRAW_LANDMARKS
- * - Action scans (button clicks): strict, moderate inputSize
- * - Smaller stored photos to reduce memory/storage pressure
- *
- * ✅ NEW RULE:
- * - AUTO CAPTURE for CHECK-IN only (every 2 seconds) when 1 registered face is seen
- * - CHECK-OUT must be clicked via button (manual)
- *
- * ✅ ADMIN ROSTER:
- * - When admin logs in, show ALL registered people list
- * - Beside name: dropdown status (Present, Absent, Half day, Day off)
- * - Saved per selected date in localStorage
- *
- * ✅ EXCEL EXPORT:
- * - Single .xlsx file (same as before)
- * - Sort rows by ROLE then NAME (both Summary + Raw Logs)
- *
- * ✅ FIXED THRESHOLD:
- * - Threshold is fixed at 0.35 (UI shows 0.35 and slider is disabled)
- */
+
+
 
 // ✅ Try local first (best), then CDN fallbacks
 const MODEL_BASES = [
@@ -53,6 +25,11 @@ const el = (id) => document.getElementById(id);
 
 // ✅ FIXED MATCH THRESHOLD (no slider)
 const FIXED_MATCH_THRESHOLD = 0.35;
+
+// ✅ Overnight rule cutoff hour
+//  - Time-Out from 00:00 up to 06:59 (if cutoff is 7) will be recorded to the previous date.
+//  - For your example 10PM -> 6AM, set this to 7.
+const OVERNIGHT_CUTOFF_HOUR = 7;
 
 function escapeHtml(str) {
     return String(str ?? "")
@@ -424,6 +401,52 @@ function timeLocal(d = now()) {
     return `${hh}:${mm}:${ss}`;
 }
 
+function dateStrToLocalDate(dateStr) {
+    // safe local date at noon to avoid DST edge cases
+    const [y, m, d] = String(dateStr || "").split("-").map((x) => Number(x));
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d, 12, 0, 0, 0);
+}
+
+function addDaysToDateStr(dateStr, deltaDays) {
+    const base = dateStrToLocalDate(dateStr);
+    if (!base) return isoDateLocal();
+    base.setDate(base.getDate() + Number(deltaDays || 0));
+    return isoDateLocal(base);
+}
+
+function getTodayStr() {
+    return isoDateLocal(now());
+}
+function getYesterdayStr() {
+    const d = now();
+    d.setDate(d.getDate() - 1);
+    return isoDateLocal(d);
+}
+
+function isOvernightWindow(d = now()) {
+    return d.getHours() < OVERNIGHT_CUTOFF_HOUR;
+}
+
+/**
+ * Effective date rule:
+ * - check-in -> always "today"
+ * - check-out -> if after midnight and before cutoff, assign to yesterday
+ */
+function getEffectiveDateForAction(actionType, d = now()) {
+    const t = String(actionType || "").toLowerCase();
+    const isOut =
+        t === "check-out" || t === "checkout" || t === "out" || t === "time-out";
+    if (!isOut) return isoDateLocal(d);
+
+    if (isOvernightWindow(d)) {
+        const yd = new Date(d);
+        yd.setDate(yd.getDate() - 1);
+        return isoDateLocal(yd);
+    }
+    return isoDateLocal(d);
+}
+
 function setStatus(msg) {
     if (ui.status) ui.status.textContent = msg || "";
 }
@@ -478,28 +501,41 @@ function safeSetLocalStorage(key, value) {
     }
 }
 
-function isSelectedDateToday() {
-    const selected = ui.datePicker?.value || isoDateLocal();
-    return selected === isoDateLocal();
+// ✅ Overnight-aware enablement:
+// - Check-in allowed ONLY if selected date == today
+// - Check-out allowed if selected date == today OR (selected date == yesterday AND current time < cutoff)
+function isCheckInAllowedNow() {
+    const selected = ui.datePicker?.value || getTodayStr();
+    return selected === getTodayStr();
+}
+
+function isCheckOutAllowedNow() {
+    const selected = ui.datePicker?.value || getTodayStr();
+    const today = getTodayStr();
+    const yest = getYesterdayStr();
+    if (selected === today) return true;
+    if (selected === yest && isOvernightWindow(now())) return true;
+    return false;
 }
 
 function updateCheckButtonsState() {
     if (!ui.btnCheckIn || !ui.btnCheckOut) return;
 
-    const ok = isSelectedDateToday();
+    const okIn = isCheckInAllowedNow();
+    const okOut = isCheckOutAllowedNow();
 
-    ui.btnCheckIn.disabled = !ok;
-    ui.btnCheckOut.disabled = !ok;
+    ui.btnCheckIn.disabled = !okIn;
+    ui.btnCheckOut.disabled = !okOut;
 
     const baseOn = "rounded-2xl px-3 py-3 text-sm font-semibold text-slate-950";
     const baseOff =
         "rounded-2xl px-3 py-3 text-sm font-semibold text-slate-400 cursor-not-allowed opacity-60";
 
-    ui.btnCheckIn.className = ok
+    ui.btnCheckIn.className = okIn
         ? `${baseOn} bg-sky-400/90 hover:bg-sky-300`
         : `${baseOff} bg-white/10`;
 
-    ui.btnCheckOut.className = ok
+    ui.btnCheckOut.className = okOut
         ? `${baseOn} bg-amber-400/90 hover:bg-amber-300`
         : `${baseOff} bg-white/10`;
 }
@@ -1107,7 +1143,10 @@ function stopLiveLoop() {
 // ---------------- AUTO CHECK-IN ONLY ----------------
 function shouldAutoCheckInNow() {
     if (!stream || !modelsReady) return false;
-    if (!isSelectedDateToday()) return false;
+
+    // ✅ auto check-in ONLY when selected date is exactly today
+    if (!isCheckInAllowedNow()) return false;
+
     if (PERF.PAUSE_WHEN_HIDDEN && document.hidden) return false;
 
     if (!liveSingle.matched || !liveSingle.userId) return false;
@@ -1151,7 +1190,7 @@ function stopAutoCheckIn() {
 }
 
 function syncAutoCheckIn() {
-    if (stream && isSelectedDateToday()) startAutoCheckIn();
+    if (stream && isCheckInAllowedNow()) startAutoCheckIn();
     else stopAutoCheckIn();
 }
 
@@ -1550,20 +1589,51 @@ async function renderProfiles() {
     });
 }
 
+/**
+ * Server logs helper
+ */
+async function fetchServerLogsByDate(dateStr) {
+    return await safeFetchJson(
+        `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
+        { method: "GET" }
+    );
+}
+
+/**
+ * Overnight merge:
+ * - When viewing/exporting a date, also fetch the NEXT day and include "out" logs that happened
+ *   before OVERNIGHT_CUTOFF_HOUR and should belong to previous date.
+ */
+function shouldAssignOutLogToPreviousDate(occurredAt) {
+    if (!occurredAt) return false;
+    const dt = new Date(occurredAt);
+    if (Number.isNaN(dt.getTime())) return false;
+    return dt.getHours() < OVERNIGHT_CUTOFF_HOUR;
+}
+
 async function renderLogs() {
     if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
 
     const dateStr = ui.datePicker.value || isoDateLocal();
 
-    const server = await safeFetchJson(
-        `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
-        {
-            method: "GET",
-        }
-    );
+    const server = await fetchServerLogsByDate(dateStr);
 
     if (server.ok && Array.isArray(server.data?.logs)) {
-        const logs = server.data.logs;
+        let logs = server.data.logs || [];
+
+        // ✅ Pull early-morning OUT logs from next day and show them under the selected date
+        const nextDate = addDaysToDateStr(dateStr, +1);
+        const next = await fetchServerLogsByDate(nextDate);
+
+        if (next.ok && Array.isArray(next.data?.logs)) {
+            const extraOuts = (next.data.logs || []).filter((r) => {
+                const t = String(r?.type || "").toLowerCase();
+                const isOut = t === "out" || t === "check-out" || t === "time-out";
+                if (!isOut) return false;
+                return shouldAssignOutLogToPreviousDate(r.occurred_at);
+            });
+            logs = logs.concat(extraOuts);
+        }
 
         const map = new Map();
 
@@ -1626,6 +1696,7 @@ async function renderLogs() {
         return;
     }
 
+    // local fallback
     const rows = buildDaySummary(dateStr);
 
     ui.logsCount.textContent = String(rows.length);
@@ -1761,20 +1832,43 @@ async function enroll() {
 
 async function attendance(type, opts = { auto: false }) {
     const isAuto = !!opts?.auto;
-    const dateStr = ui.datePicker?.value || isoDateLocal();
+    const selectedDate = ui.datePicker?.value || isoDateLocal();
+    const todayStr = getTodayStr();
+    const yestStr = getYesterdayStr();
+    const nowObj = now();
 
     if (attendanceInProgress) return;
     attendanceInProgress = true;
 
     try {
-        if (dateStr !== isoDateLocal()) {
-            if (!isAuto) {
-                appendStatus(
-                    "Range view is read-only. Set From = To to edit a single date."
-                );
-                appendStatus("Check In/Out works ONLY on TODAY.");
+        // ✅ Check-in rules
+        if (type === "check-in") {
+            if (selectedDate !== todayStr) {
+                if (!isAuto) {
+                    appendStatus("Check-in works ONLY on TODAY.");
+                }
+                return;
             }
-            return;
+        }
+
+        // ✅ Check-out rules (overnight allowed):
+        // - allow if selected date == today
+        // - OR allow if selected date == yesterday AND time is before cutoff hour
+        if (type === "check-out") {
+            const okOut =
+                selectedDate === todayStr ||
+                (selectedDate === yestStr && isOvernightWindow(nowObj));
+
+            if (!okOut) {
+                if (!isAuto) {
+                    appendStatus(
+                        `Check-out blocked: You can check-out on TODAY, or on YESTERDAY only before ${String(
+                            OVERNIGHT_CUTOFF_HOUR
+                        ).padStart(2, "0")}:00 (overnight shift).`
+                    );
+                }
+                return;
+            }
         }
 
         if (!stream) {
@@ -1789,12 +1883,6 @@ async function attendance(type, opts = { auto: false }) {
 
         // ✅ FIXED THRESHOLD
         const threshold = FIXED_MATCH_THRESHOLD;
-
-        if (!isSelectedDateToday()) {
-            if (!isAuto)
-                appendStatus("Check In/Out is disabled for past dates.");
-            return;
-        }
 
         if (!isAuto) {
             if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
@@ -1844,6 +1932,11 @@ async function attendance(type, opts = { auto: false }) {
         );
         const apiType = type === "check-in" ? "in" : "out";
 
+        // ✅ Effective date (overnight shift):
+        // - check-in: today
+        // - check-out: if early morning, assign to yesterday
+        const effectiveDate = getEffectiveDateForAction(type, nowObj);
+
         const r = await safeFetchJson("/api/attendance/clock", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1853,6 +1946,9 @@ async function attendance(type, opts = { auto: false }) {
                 threshold,
                 device_id: "kiosk-1",
                 photo_data_url: photo || null,
+
+                // ✅ Send hint to server (optional). If server ignores, UI still works.
+                effective_date: effectiveDate,
             }),
         });
 
@@ -1883,9 +1979,7 @@ async function attendance(type, opts = { auto: false }) {
 
         if (!isAuto) {
             window.toastSwal?.(
-                `${
-                    type === "check-in" ? "Time-In" : "Time-Out"
-                } saved: ${name}`,
+                `${type === "check-in" ? "Time-In" : "Time-Out"} saved: ${name}`,
                 "success"
             );
         }
@@ -1898,19 +1992,23 @@ async function attendance(type, opts = { auto: false }) {
 
         showRightToast({
             name,
-            date: dateStr,
-            time: timeLocal(now()),
+            date: effectiveDate, // ✅ show effective date (overnight-aware)
+            time: timeLocal(nowObj),
             action: actionLabel,
             photoDataUrl: photo || null,
         });
 
-        addLog(dateStr, {
+        // ✅ Save UI cache under effective date (overnight-aware)
+        addLog(effectiveDate, {
             name,
             type,
-            time: timeLocal(now()),
+            time: timeLocal(nowObj),
             photo_data_url: photo || null,
             user_id: userId || "",
             server_log_id: r.data?.log_id ?? null,
+
+            // store real datetime for debugging if needed
+            occurred_at_real: `${todayStr} ${timeLocal(nowObj)}`,
         });
 
         renderLogs();
@@ -2018,50 +2116,68 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
 
     let raw = [];
 
-    const server = await safeFetchJson(
-        `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
-        {
-            method: "GET",
-        }
-    );
+    // ✅ fetch selected date logs
+    const server = await fetchServerLogsByDate(dateStr);
 
-    if (server.ok && Array.isArray(server.data?.logs)) {
-        raw = server.data.logs.map((r) => {
-            const dt = r.occurred_at ? new Date(r.occurred_at) : null;
+    // ✅ also fetch next day logs to pull early-morning OUT into selected date export
+    const nextDate = addDaysToDateStr(dateStr, +1);
+    const serverNext = await fetchServerLogsByDate(nextDate);
 
-            const userId = r.user_id || r.user?.id || "";
-            const name =
-                r.name || r.user_name || (userId ? `User ${userId}` : "");
-            const roleFromLog =
-                r.role_name ||
-                r.role?.name ||
-                r.user?.role_name ||
-                r.user?.role?.name ||
-                "";
+    const combinedServerLogs = [];
+    if (server.ok && Array.isArray(server.data?.logs))
+        combinedServerLogs.push(...(server.data.logs || []));
+    if (serverNext.ok && Array.isArray(serverNext.data?.logs))
+        combinedServerLogs.push(...(serverNext.data.logs || []));
 
-            const role = resolvePersonRole(userId, name, roleFromLog);
+    if (combinedServerLogs.length) {
+        raw = combinedServerLogs
+            .map((r) => {
+                const dt = r.occurred_at ? new Date(r.occurred_at) : null;
 
-            return {
-                date: dateStr,
-                occurred_at: r.occurred_at || "",
-                time: dt ? timeLocal(dt) : "",
-                name,
-                role,
-                type: r.type || "",
-                user_id: userId,
-                device_id: r.device_id || "",
-                photo_path: r.photo_path || "",
-                photo_data_url: includePhotoDataUrl
-                    ? r.photo_data_url || ""
-                    : "",
-                meta:
-                    r.meta == null
-                        ? ""
-                        : typeof r.meta === "string"
-                        ? r.meta
-                        : JSON.stringify(r.meta),
-            };
-        });
+                const userId = r.user_id || r.user?.id || "";
+                const name =
+                    r.name || r.user_name || (userId ? `User ${userId}` : "");
+                const roleFromLog =
+                    r.role_name ||
+                    r.role?.name ||
+                    r.user?.role_name ||
+                    r.user?.role?.name ||
+                    "";
+
+                const role = resolvePersonRole(userId, name, roleFromLog);
+
+                const typ = String(r.type || "").toLowerCase();
+                const isOut = typ === "out" || typ === "check-out" || typ === "time-out";
+                const effDate =
+                    isOut && r.occurred_at && shouldAssignOutLogToPreviousDate(r.occurred_at)
+                        ? addDaysToDateStr(isoDateLocal(new Date(r.occurred_at)), -1)
+                        : (dt ? isoDateLocal(dt) : dateStr);
+
+                return {
+                    effective_date: effDate,
+                    date: effDate, // keep existing column name as "date"
+                    occurred_at: r.occurred_at || "",
+                    time: dt ? timeLocal(dt) : "",
+                    name,
+                    role,
+                    type: r.type || "",
+                    user_id: userId,
+                    device_id: r.device_id || "",
+                    photo_path: r.photo_path || "",
+                    photo_data_url: includePhotoDataUrl
+                        ? r.photo_data_url || ""
+                        : "",
+                    meta:
+                        r.meta == null
+                            ? ""
+                            : typeof r.meta === "string"
+                            ? r.meta
+                            : JSON.stringify(r.meta),
+                };
+            })
+            // ✅ only keep rows that belong to selected export date
+            .filter((row) => row.effective_date === dateStr)
+            .map(({ effective_date, ...rest }) => rest); // remove helper field
     } else {
         raw = getLogsForDate(dateStr).map((r) => {
             const userId = r?.user_id || "";
@@ -2080,9 +2196,7 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
                 user_id: userId,
                 device_id: r?.device_id || "",
                 photo_path: r?.photo_path || "",
-                photo_data_url: includePhotoDataUrl
-                    ? r?.photo_data_url || ""
-                    : "",
+                photo_data_url: includePhotoDataUrl ? r?.photo_data_url || "" : "",
                 meta:
                     r?.meta == null
                         ? ""
@@ -2176,11 +2290,7 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
                 item.time_out = r.time || item.time_out;
         }
 
-        item.status = getRosterStatusForExport(
-            dateStr,
-            item.user_id,
-            item.name
-        );
+        item.status = getRosterStatusForExport(dateStr, item.user_id, item.name);
     }
 
     const summary = Array.from(summaryMap.values());
@@ -2345,9 +2455,7 @@ function bindEvents() {
     });
 
     ui.btnClearAll?.addEventListener("click", () => {
-        clearAll().catch((e) =>
-            appendStatus(`Reset error: ${e?.message || e}`)
-        );
+        clearAll().catch((e) => appendStatus(`Reset error: ${e?.message || e}`));
     });
 
     ui.btnChangePw?.addEventListener("click", () => {
@@ -2425,6 +2533,10 @@ function bindEvents() {
         }
         if (ui.nowLabel)
             ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
+
+        // ✅ keep buttons correct as date changes overnight
+        updateCheckButtonsState();
+        syncAutoCheckIn();
     };
     tickClock();
     setInterval(tickClock, 1000);
@@ -2455,8 +2567,11 @@ function bindEvents() {
             "AUTO check-in runs every 2 seconds when 1 registered face is visible."
         );
         appendStatus("Check-out is MANUAL (must click the button).");
+
         appendStatus(
-            "Check In/Out works ONLY on TODAY. You can still browse history by changing date."
+            `Overnight rule: TIME-OUT before ${String(
+                OVERNIGHT_CUTOFF_HOUR
+            ).padStart(2, "0")}:00 will be recorded to the previous date (Time-In date).`
         );
 
         appendStatus(
