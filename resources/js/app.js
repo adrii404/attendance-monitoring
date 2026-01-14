@@ -2619,3 +2619,271 @@ function getRosterStatusForExport(dateStr, userId, name) {
 
     return "Present";
 }
+
+(function() {
+            const ROLE_LABELS = {
+                "1": "ADMIN",
+                "2": "IT",
+                "3": "CSR",
+                "4": "TECHNICAL",
+            };
+
+            function escapeHtml(s) {
+                return String(s ?? "")
+                    .replaceAll("&", "&amp;")
+                    .replaceAll("<", "&lt;")
+                    .replaceAll(">", "&gt;")
+                    .replaceAll('"', "&quot;")
+                    .replaceAll("'", "&#039;");
+            }
+
+            function safeJsonParse(str, fallback) {
+                try {
+                    const v = JSON.parse(str);
+                    return v ?? fallback;
+                } catch (e) {
+                    return fallback;
+                }
+            }
+
+            // ✅ Your app.js storage key (and fallbacks)
+            function detectProfilesKey() {
+                const candidates = [
+                    "fb_attendance_profiles_v1", // ✅ from app.js
+                    "fa_profiles",
+                    "fa_face_profiles",
+                    "face_profiles",
+                    "profiles",
+                ];
+
+                for (const key of candidates) {
+                    const raw = localStorage.getItem(key);
+                    if (!raw) continue;
+                    const arr = safeJsonParse(raw, null);
+                    if (Array.isArray(arr)) return key;
+                }
+
+                // fallback: scan localStorage keys that look like profiles
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (!k) continue;
+                    if (!/profile/i.test(k)) continue;
+                    const raw = localStorage.getItem(k);
+                    const arr = safeJsonParse(raw, null);
+                    if (Array.isArray(arr)) return k;
+                }
+
+                return "fb_attendance_profiles_v1";
+            }
+
+            // ✅ Normalize role id from MANY shapes (this is where your filter was failing)
+            function normalizeRoleId(p) {
+                if (!p) return "";
+
+                // numeric direct
+                const direct =
+                    p.role_id ?? p.roleId ?? p.roleID ?? p.user_role_id ?? p.userRoleId ??
+                    p.user?.role_id ?? p.user?.roleId ?? "";
+
+                if (String(direct).match(/^\d+$/)) return String(direct);
+
+                // role object: {id, name}
+                const roleObj = p.role ?? p.user?.role ?? null;
+                if (roleObj && typeof roleObj === "object") {
+                    const rid = roleObj.id ?? roleObj.role_id ?? roleObj.roleId ?? "";
+                    if (String(rid).match(/^\d+$/)) return String(rid);
+
+                    const rname = roleObj.name ?? roleObj.role_name ?? "";
+                    const upper = String(rname || "").trim().toUpperCase();
+                    for (const [id, label] of Object.entries(ROLE_LABELS)) {
+                        if (label === upper) return id;
+                    }
+                }
+
+                // string role name: "CSR" -> id
+                const nameLike =
+                    p.role_name ?? p.roleName ?? p.role ?? p.user?.role_name ?? p.user?.roleName ?? "";
+
+                const upper = String(nameLike || "").trim().toUpperCase();
+                for (const [id, label] of Object.entries(ROLE_LABELS)) {
+                    if (label === upper) return id;
+                }
+
+                return "";
+            }
+
+            function normalizeName(p) {
+                return p?.name ?? p?.full_name ?? p?.fullName ?? p?.user?.name ?? "—";
+            }
+
+            function normalizeContact(p) {
+                return p?.contact ?? p?.contact_number ?? p?.phone ?? p?.mobile ?? p?.user?.contact_number ?? "";
+            }
+
+            function normalizeRoleLabel(p) {
+                const rid = normalizeRoleId(p);
+                if (rid && ROLE_LABELS[rid]) return ROLE_LABELS[rid];
+
+                // fall back to any label we can find
+                const nameLike =
+                    p?.role_name ?? p?.roleName ?? p?.role?.name ?? p?.role ?? p?.user?.role?.name ?? "—";
+                return String(nameLike || "—").toUpperCase();
+            }
+
+            async function fetchDbProfiles() {
+                try {
+                    const res = await fetch("/api/face/profiles", { headers: { "Accept": "application/json" } });
+                    if (!res.ok) return { ok: false, profiles: [], info: `DB: HTTP ${res.status}` };
+                    const data = await res.json();
+
+                    // Accept common shapes:
+                    // {profiles:[...]} OR {data:[...]} OR [...]
+                    const profiles =
+                        Array.isArray(data) ? data :
+                        Array.isArray(data?.profiles) ? data.profiles :
+                        Array.isArray(data?.data) ? data.data :
+                        Array.isArray(data?.profiles?.data) ? data.profiles.data :
+                        Array.isArray(data?.data?.data) ? data.data.data :
+                        [];
+
+                    return { ok: true, profiles, info: `DB: ${profiles.length}` };
+                } catch (e) {
+                    return { ok: false, profiles: [], info: `DB: error` };
+                }
+            }
+
+            function getLocalProfiles() {
+                const key = detectProfilesKey();
+                const raw = localStorage.getItem(key);
+                const arr = safeJsonParse(raw || "[]", []);
+                return { key, profiles: Array.isArray(arr) ? arr : [] };
+            }
+
+            async function renderRoster() {
+                const listEl = document.getElementById("adminRosterList");
+                const countEl = document.getElementById("rosterCount");
+                const filterEl = document.getElementById("rosterRoleFilter");
+                const infoEl = document.getElementById("rosterSourceInfo");
+
+                if (!listEl || !countEl || !filterEl) return;
+
+                const filterRole = String(filterEl.value || "");
+
+                // ✅ DB first
+                const db = await fetchDbProfiles();
+
+                // ✅ Local fallback
+                const local = getLocalProfiles();
+
+                const sourceProfiles = db.ok && db.profiles.length ? db.profiles : local.profiles;
+                const sourceLabel = db.ok && db.profiles.length ? db.info : `Local(${local.key}): ${local.profiles.length}`;
+
+                if (infoEl) infoEl.textContent = `Source: ${sourceLabel}`;
+
+                const filtered = sourceProfiles.filter(p => {
+                    if (!filterRole) return true;
+                    return normalizeRoleId(p) === filterRole;
+                });
+
+                countEl.textContent = String(filtered.length);
+
+                if (!filtered.length) {
+                    const label = filterRole ? (ROLE_LABELS[filterRole] || "Selected role") : "All roles";
+                    listEl.innerHTML = `
+                        <div class="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+                            No registered employee found for: <span class="font-semibold text-slate-100">${escapeHtml(label)}</span>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // consistent sorting by role then name
+                filtered.sort((a, b) => {
+                    const ra = normalizeRoleLabel(a);
+                    const rb = normalizeRoleLabel(b);
+                    if (ra !== rb) return ra.localeCompare(rb);
+                    return normalizeName(a).localeCompare(normalizeName(b));
+                });
+
+                listEl.innerHTML = filtered.map((p, idx) => {
+                    const name = normalizeName(p);
+                    const contact = normalizeContact(p);
+                    const roleLabel = normalizeRoleLabel(p);
+
+                    return `
+                        <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-semibold text-slate-100 truncate">${escapeHtml(name)}</div>
+                                    <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+                                        <span class="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5">
+                                            ${escapeHtml(roleLabel)}
+                                        </span>
+                                        ${contact ? `<span class="opacity-90">📞 ${escapeHtml(contact)}</span>` : ``}
+                                    </div>
+                                </div>
+                                <div class="text-[11px] text-slate-400">#${idx + 1}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join("");
+            }
+
+            // Expose so app.js or other scripts can trigger refresh after enroll/import
+            window.renderRosterByRole = renderRoster;
+
+            document.addEventListener("DOMContentLoaded", () => {
+                const filterEl = document.getElementById("rosterRoleFilter");
+                if (filterEl) {
+                    filterEl.addEventListener("change", renderRoster);
+                }
+
+                // refresh when profile-ish keys change
+                try {
+                    const originalSetItem = localStorage.setItem;
+                    localStorage.setItem = function(k, v) {
+                        originalSetItem.apply(this, arguments);
+                        const kk = String(k || "").toLowerCase();
+                        if (kk.includes("profile") || kk.includes("attendance_profiles")) {
+                            renderRoster();
+                        }
+                    };
+                } catch (e) {}
+
+                renderRoster();
+            });
+        })();
+
+        // SweetAlert helper used by app.js 
+    
+        window.confirmTimeInSwal = async function(name) {
+            if (!window.Swal) {
+                return window.confirm(`Confirm TIME-IN?\n\nName: ${name}`);
+            }
+
+            const result = await window.Swal.fire({
+                title: "Confirm Check-In?",
+                html: `<div style="font-size:14px;line-height:1.4">
+                        <div style="opacity:.85">Detected employee:</div>
+                        <div style="margin-top:6px;font-weight:700;color:#34d399">${String(name || "—")}</div>
+                       </div>`,
+                icon: "question",
+                showCancelButton: true,
+                confirmButtonText: "Yes, Check-In",
+                cancelButtonText: "Cancel",
+                reverseButtons: true,
+                focusCancel: true,
+            });
+
+            return !!result.isConfirmed;
+        };
+
+        // Theme boot (runs BEFORE paint to prevent flashing)
+        (function() {
+            const KEY = "fa_theme"; // "dark" | "light"
+            const stored = localStorage.getItem(KEY);
+            const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+            const theme = stored || (prefersDark ? "dark" : "light");
+
+            document.documentElement.classList.toggle("dark", theme === "dark");
+        })();

@@ -9,17 +9,7 @@
 
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
-    <script>
-        // Theme boot (runs BEFORE paint to prevent flashing)
-        (function() {
-            const KEY = "fa_theme"; // "dark" | "light"
-            const stored = localStorage.getItem(KEY);
-            const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-            const theme = stored || (prefersDark ? "dark" : "light");
-
-            document.documentElement.classList.toggle("dark", theme === "dark");
-        })();
-    </script>
+    
 
     <!-- ✅ SweetAlert2 (for Check-In confirmation popup) -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -96,7 +86,7 @@
     <main class="px-4 py-6">
         <div class="grid gap-6 lg:grid-cols-[2fr_1fr]">
 
-            <!-- ✅ SWAPPED: Camera section is now FIRST -->
+            <!-- ✅ Camera section -->
             <section>
                 <div class="rounded-3xl border border-white/10 bg-white/5 p-4 shadow">
                     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -198,7 +188,7 @@
                 </div>
             </section>
 
-            <!-- ✅ SWAPPED: Logs/Admin section is now SECOND -->
+            <!-- ✅ Admin section -->
             <section>
                 <div class="rounded-3xl border border-white/10 bg-white/5 p-4 shadow">
 
@@ -275,6 +265,9 @@
                                 </select>
                             </div>
 
+                            <!-- ✅ optional: debug info -->
+                            <div id="rosterSourceInfo" class="mt-2 text-[11px] text-slate-400">Source: —</div>
+
                             <div id="adminRosterList" class="mt-3 grid gap-2"></div>
                         </div>
 
@@ -285,7 +278,8 @@
                                 <input id="threshold" type="range" min="0.35" max="0.35" step="0.01" value="0.35"
                                     class="w-full" disabled>
 
-                                <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.55</div>
+                                <!-- ✅ fixed initial value -->
+                                <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.35</div>
                             </div>
 
                             <div class="mt-1 text-[11px] text-slate-400">Tip: 0.50–0.60 is a common starting range.
@@ -318,7 +312,7 @@
                 </div>
             </section>
 
-            <!-- unchanged: toast column stays THIRD -->
+            <!-- toast column -->
             <section>
                 <div id="toastList" class="space-y-3"></div>
             </section>
@@ -351,197 +345,9 @@
         </footer>
     </main>
 
-    <!-- ✅ SweetAlert helper used by app.js (no need to change your app.js if it calls confirmTimeInPopup using Swal) -->
-    <script>
-        window.confirmTimeInSwal = async function(name) {
-            if (!window.Swal) {
-                return window.confirm(`Confirm TIME-IN?\n\nName: ${name}`);
-            }
+    
 
-            const result = await window.Swal.fire({
-                title: "Confirm Check-In?",
-                html: `<div style="font-size:14px;line-height:1.4">
-                        <div style="opacity:.85">Detected employee:</div>
-                        <div style="margin-top:6px;font-weight:700;color:#34d399">${String(name || "—")}</div>
-                       </div>`,
-                icon: "question",
-                showCancelButton: true,
-                confirmButtonText: "Yes, Check-In",
-                cancelButtonText: "Cancel",
-                reverseButtons: true,
-                focusCancel: true,
-            });
-
-            return !!result.isConfirmed;
-        };
-    </script>
-
-    <!-- ✅ NEW: Role dropdown filter logic (works even if you don't edit app.js) -->
-    <script>
-        (function() {
-            const ROLE_LABELS = {
-                "1": "ADMIN",
-                "2": "IT",
-                "3": "CSR",
-                "4": "TECHNICAL",
-            };
-
-            function safeJsonParse(str, fallback) {
-                try {
-                    const v = JSON.parse(str);
-                    return v ?? fallback;
-                } catch (e) {
-                    return fallback;
-                }
-            }
-
-            // Try to find the profiles key used by your app.js (supports several common keys)
-            function detectProfilesKey() {
-                const candidates = [
-                    "fa_profiles",
-                    "fa_face_profiles",
-                    "face_profiles",
-                    "profiles",
-                ];
-
-                for (const key of candidates) {
-                    const raw = localStorage.getItem(key);
-                    if (!raw) continue;
-                    const arr = safeJsonParse(raw, null);
-                    if (Array.isArray(arr)) return key;
-                }
-
-                // fallback: scan localStorage keys that look like profiles
-                for (let i = 0; i < localStorage.length; i++) {
-                    const k = localStorage.key(i);
-                    if (!k) continue;
-                    if (!/profile/i.test(k)) continue;
-                    const raw = localStorage.getItem(k);
-                    const arr = safeJsonParse(raw, null);
-                    if (Array.isArray(arr)) return k;
-                }
-
-                // final default
-                return "fa_profiles";
-            }
-
-            function normalizeRoleId(p) {
-                // support various shapes:
-                // role_id, roleId, role, role_name, roleName...
-                const v =
-                    (p && (p.role_id ?? p.roleId ?? p.roleID ?? p.role)) ??
-                    "";
-
-                // If it's already numeric-ish (e.g., "3" or 3)
-                if (String(v).match(/^\d+$/)) return String(v);
-
-                // If it's text label (e.g., "CSR"), map back to id if possible
-                const upper = String(v || "").trim().toUpperCase();
-                for (const [id, label] of Object.entries(ROLE_LABELS)) {
-                    if (label === upper) return id;
-                }
-                return ""; // unknown
-            }
-
-            function getProfiles() {
-                const key = detectProfilesKey();
-                const raw = localStorage.getItem(key);
-                const arr = safeJsonParse(raw || "[]", []);
-                return Array.isArray(arr) ? arr : [];
-            }
-
-            function escapeHtml(s) {
-                return String(s ?? "")
-                    .replaceAll("&", "&amp;")
-                    .replaceAll("<", "&lt;")
-                    .replaceAll(">", "&gt;")
-                    .replaceAll('"', "&quot;")
-                    .replaceAll("'", "&#039;");
-            }
-
-            function renderRoster() {
-                const listEl = document.getElementById("adminRosterList");
-                const countEl = document.getElementById("rosterCount");
-                const filterEl = document.getElementById("rosterRoleFilter");
-
-                if (!listEl || !countEl || !filterEl) return;
-
-                const filterRole = String(filterEl.value || "");
-                const profiles = getProfiles();
-
-                const filtered = profiles.filter(p => {
-                    if (!filterRole) return true;
-                    return normalizeRoleId(p) === filterRole;
-                });
-
-                countEl.textContent = String(filtered.length);
-
-                if (!filtered.length) {
-                    const label = filterRole ? (ROLE_LABELS[filterRole] || "Selected role") : "All roles";
-                    listEl.innerHTML = `
-                        <div class="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
-                            No registered employee found for: <span class="font-semibold text-slate-100">${escapeHtml(label)}</span>
-                        </div>
-                    `;
-                    return;
-                }
-
-                listEl.innerHTML = filtered.map((p, idx) => {
-                    const name = p.name ?? p.full_name ?? p.fullName ?? "—";
-                    const contact = p.contact ?? p.contact_number ?? p.phone ?? p.mobile ?? "";
-                    const roleId = normalizeRoleId(p);
-                    const roleLabel = ROLE_LABELS[roleId] || (p.role_name ?? p.roleName ?? p.role ?? "—");
-                    const created = p.created_at ?? p.createdAt ?? p.enrolled_at ?? "";
-
-                    return `
-                        <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3">
-                            <div class="flex items-start justify-between gap-3">
-                                <div class="min-w-0">
-                                    <div class="text-sm font-semibold text-slate-100 truncate">${escapeHtml(name)}</div>
-                                    <div class="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
-                                        <span class="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5">
-                                            ${escapeHtml(String(roleLabel).toUpperCase())}
-                                        </span>
-                                        ${contact ? `<span class="opacity-90">📞 ${escapeHtml(contact)}</span>` : ``}
-                                        ${created ? `<span class="opacity-70">• ${escapeHtml(created)}</span>` : ``}
-                                    </div>
-                                </div>
-                                <div class="text-[11px] text-slate-400">#${idx + 1}</div>
-                            </div>
-                        </div>
-                    `;
-                }).join("");
-            }
-
-            // Expose so app.js can call after enroll/import if needed
-            window.renderRosterByRole = renderRoster;
-
-            document.addEventListener("DOMContentLoaded", () => {
-                const filterEl = document.getElementById("rosterRoleFilter");
-                if (filterEl) {
-                    filterEl.addEventListener("change", renderRoster);
-                }
-
-                // Patch localStorage.setItem so when app.js saves profiles, roster refreshes automatically
-                try {
-                    const originalSetItem = localStorage.setItem;
-                    localStorage.setItem = function(k, v) {
-                        originalSetItem.apply(this, arguments);
-                        if (String(k).toLowerCase().includes("profile")) {
-                            // refresh if anything profile-ish changed
-                            renderRoster();
-                        }
-                    };
-                } catch (e) {
-                    // ignore
-                }
-
-                // Initial render
-                renderRoster();
-            });
-        })();
-    </script>
-
+    
 </body>
 
 </html>
