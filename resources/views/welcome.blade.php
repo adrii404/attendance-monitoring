@@ -10,16 +10,16 @@
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
     <script>
-  // Theme boot (runs BEFORE paint to prevent flashing)
-  (function () {
-    const KEY = "fa_theme"; // "dark" | "light"
-    const stored = localStorage.getItem(KEY);
-    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const theme = stored || (prefersDark ? "dark" : "light");
+        // Theme boot (runs BEFORE paint to prevent flashing)
+        (function() {
+            const KEY = "fa_theme"; // "dark" | "light"
+            const stored = localStorage.getItem(KEY);
+            const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+            const theme = stored || (prefersDark ? "dark" : "light");
 
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  })();
-</script>
+            document.documentElement.classList.toggle("dark", theme === "dark");
+        })();
+    </script>
 
 
     <!-- ✅ SweetAlert2 (for Check-In confirmation popup) -->
@@ -90,7 +90,7 @@
                     class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15 cursor-pointer">Admin
                     Access</button>
 
-                    
+
             </div>
 
         </div>
@@ -110,6 +110,7 @@
                             </div>
                         </div>
 
+
                         <div class="flex flex-wrap items-center gap-2">
                             <button id="btnStart" type="button"
                                 class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">Start</button>
@@ -121,8 +122,24 @@
                     </div>
 
                     <div class="mt-4">
+                        <div class="text-sm font-semibold">Attendance actions</div>
+                        <div class="text-xs text-slate-300">Face-match an enrolled person, then log
+                            check-in/out.
+                        </div>
+                    </div>
+
+                    <div class="mt-3 grid gap-2 lg:grid-cols-2">
+                        <button id="btnCheckIn" type="button"
+                            class="rounded-2xl bg-sky-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">Check
+                            In</button>
+                        <button id="btnCheckOut" type="button"
+                            class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300 ">Check
+                            Out</button>
+                    </div>
+
+                    <div class="mt-4">
                         <div id="videoWrap"
-                            class="relative h-[500px] overflow-hidden rounded-2xl border border-white/10 bg-black">
+                            class="relative h-[600px] overflow-hidden rounded-2xl border border-white/10 bg-black">
                             <video id="video" class="w-full h-full object-cover" autoplay muted playsinline></video>
                             <canvas id="overlay" class="pointer-events-none absolute inset-0"></canvas>
                         </div>
@@ -134,21 +151,7 @@
                         </div>
 
                         <div class="mt-4">
-                            <div>
-                                <div class="text-sm font-semibold">Attendance actions</div>
-                                <div class="text-xs text-slate-300">Face-match an enrolled person, then log
-                                    check-in/out.
-                                </div>
-                            </div>
 
-                            <div class="mt-3 grid gap-2 lg:grid-cols-2">
-                                <button id="btnCheckIn" type="button"
-                                    class="rounded-2xl bg-sky-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">Check
-                                    In</button>
-                                <button id="btnCheckOut" type="button"
-                                    class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300 ">Check
-                                    Out</button>
-                            </div>
                             <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
                                 <div class="flex items-center justify-between">
                                     <div class="text-xs font-semibold text-slate-200">Logs (selected day)</div>
