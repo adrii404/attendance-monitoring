@@ -1,8 +1,5 @@
 import "./bootstrap";
 
-
-
-
 // ✅ Try local first (best), then CDN fallbacks
 const MODEL_BASES = [
     "/faceapi/weights", // ✅ put weights here: public/faceapi/weights/*
@@ -26,10 +23,12 @@ const el = (id) => document.getElementById(id);
 // ✅ FIXED MATCH THRESHOLD (no slider)
 const FIXED_MATCH_THRESHOLD = 0.35;
 
-// ✅ Overnight rule cutoff hour
-//  - Time-Out from 00:00 up to 06:59 (if cutoff is 7) will be recorded to the previous date.
-//  - For your example 10PM -> 6AM, set this to 7.
+// ✅ Overnight cutoff hour (USED ONLY AS A FALLBACK now)
+// If you still want a fallback window: 7 means 00:00 up to 07:59 can be treated as "previous date".
 const OVERNIGHT_CUTOFF_HOUR = 7;
+
+// ✅ How far back we allow selecting a date for Time-Out (to cover night shifts)
+const CHECKOUT_MAX_PAST_DAYS = 2;
 
 function escapeHtml(str) {
     return String(str ?? "")
@@ -415,6 +414,14 @@ function addDaysToDateStr(dateStr, deltaDays) {
     return isoDateLocal(base);
 }
 
+function daysDiffFromToday(dateStr) {
+    const d = dateStrToLocalDate(dateStr);
+    const t = dateStrToLocalDate(isoDateLocal(now()));
+    if (!d || !t) return 9999;
+    const ms = d.getTime() - t.getTime();
+    return Math.round(ms / (1000 * 60 * 60 * 24));
+}
+
 function getTodayStr() {
     return isoDateLocal(now());
 }
@@ -424,16 +431,17 @@ function getYesterdayStr() {
     return isoDateLocal(d);
 }
 
+// ✅ inclusive fallback window: cutoff=7 means 00:00–07:59
 function isOvernightWindow(d = now()) {
-    return d.getHours() < OVERNIGHT_CUTOFF_HOUR;
+    return d.getHours() < OVERNIGHT_CUTOFF_HOUR + 1;
 }
 
 /**
- * Effective date rule:
+ * Fallback effective date rule (ONLY used if we can't resolve last Time-In date):
  * - check-in -> always "today"
- * - check-out -> if after midnight and before cutoff, assign to yesterday
+ * - check-out -> if after midnight and within overnight window, assign to yesterday
  */
-function getEffectiveDateForAction(actionType, d = now()) {
+function getEffectiveDateFallback(actionType, d = now()) {
     const t = String(actionType || "").toLowerCase();
     const isOut =
         t === "check-out" || t === "checkout" || t === "out" || t === "time-out";
@@ -503,7 +511,7 @@ function safeSetLocalStorage(key, value) {
 
 // ✅ Overnight-aware enablement:
 // - Check-in allowed ONLY if selected date == today
-// - Check-out allowed if selected date == today OR (selected date == yesterday AND current time < cutoff)
+// - Check-out allowed if selected date is within last CHECKOUT_MAX_PAST_DAYS (today/yesterday by default)
 function isCheckInAllowedNow() {
     const selected = ui.datePicker?.value || getTodayStr();
     return selected === getTodayStr();
@@ -511,11 +519,8 @@ function isCheckInAllowedNow() {
 
 function isCheckOutAllowedNow() {
     const selected = ui.datePicker?.value || getTodayStr();
-    const today = getTodayStr();
-    const yest = getYesterdayStr();
-    if (selected === today) return true;
-    if (selected === yest && isOvernightWindow(now())) return true;
-    return false;
+    const diff = daysDiffFromToday(selected); // 0=today, -1=yesterday, -2=2 days ago
+    return diff <= 0 && diff >= -CHECKOUT_MAX_PAST_DAYS;
 }
 
 function updateCheckButtonsState() {
@@ -1600,15 +1605,114 @@ async function fetchServerLogsByDate(dateStr) {
 }
 
 /**
- * Overnight merge:
+ * Fallback merge:
  * - When viewing/exporting a date, also fetch the NEXT day and include "out" logs that happened
- *   before OVERNIGHT_CUTOFF_HOUR and should belong to previous date.
+ *   within the overnight window (00:00–07:59 if cutoff=7) so they appear under the previous day.
+ *
+ * NOTE: If your backend uses `effective_date` properly, you may remove this merge later.
  */
 function shouldAssignOutLogToPreviousDate(occurredAt) {
     if (!occurredAt) return false;
     const dt = new Date(occurredAt);
     if (Number.isNaN(dt.getTime())) return false;
-    return dt.getHours() < OVERNIGHT_CUTOFF_HOUR;
+    return dt.getHours() < OVERNIGHT_CUTOFF_HOUR + 1; // inclusive hour window
+}
+
+/**
+ * ✅ NEW RULE (your request):
+ * Time-Out should be recorded on the date of the employee's last Time-In (shift date).
+ *
+ * We resolve it in this order:
+ * 1) If user selected a past date in the date picker (e.g., yesterday), we use that (assume they picked the shift date).
+ * 2) Try optional backend endpoints for last Time-In date (if you add them later).
+ * 3) Fallback to local UI cache (last check-in date we stored).
+ * 4) Final fallback: overnight cutoff logic.
+ */
+async function fetchLastCheckInDateFromServer(userId) {
+    const uid = userId != null ? String(userId) : "";
+    if (!uid) return null;
+
+    // ✅ OPTIONAL endpoints (safe attempts). Add any of these in Laravel if you want perfect accuracy.
+    const candidates = [
+        `/api/attendance/last-in?user_id=${encodeURIComponent(uid)}`,
+        `/api/attendance/last-in-date?user_id=${encodeURIComponent(uid)}`,
+    ];
+
+    for (const url of candidates) {
+        const r = await safeFetchJson(url, { method: "GET" });
+        if (!r.ok || !r.data) continue;
+
+        const date =
+            r.data?.date ||
+            r.data?.last_in_date ||
+            r.data?.last_in?.date ||
+            r.data?.last_in?.effective_date ||
+            r.data?.data?.date ||
+            null;
+
+        if (date && /^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+            return String(date);
+        }
+    }
+
+    return null;
+}
+
+function findLatestCheckInDateForUserFromLocal(userId, name) {
+    const uid = userId != null ? String(userId) : "";
+    const nm = String(name || "").trim().toLowerCase();
+    const store = getLogs();
+
+    const dates = Object.keys(store || {}).filter((d) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(d)
+    );
+
+    // newest first
+    dates.sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+
+    for (const dateStr of dates) {
+        const arr = Array.isArray(store[dateStr]) ? store[dateStr] : [];
+        // scan newest to oldest
+        for (let i = arr.length - 1; i >= 0; i--) {
+            const r = arr[i];
+            if (!r) continue;
+            if (String(r.type || "") !== "check-in") continue;
+
+            const rid = r.user_id != null ? String(r.user_id) : "";
+            const rname = String(r.name || "").trim().toLowerCase();
+
+            const matchById = uid && rid && uid === rid;
+            const matchByName = !uid && nm && rname && nm === rname;
+
+            if (matchById || matchByName) return dateStr;
+        }
+    }
+
+    return null;
+}
+
+async function resolveEffectiveDateForCheckOut({
+    userId,
+    name,
+    selectedDate,
+    nowObj,
+} = {}) {
+    const todayStr = getTodayStr();
+    const sel = selectedDate || todayStr;
+
+    // 1) If user selected a past date (yesterday etc.), treat that as the shift date.
+    if (sel && sel !== todayStr) return sel;
+
+    // 2) Try server (if endpoint exists)
+    const serverDate = await fetchLastCheckInDateFromServer(userId);
+    if (serverDate) return serverDate;
+
+    // 3) Local cache fallback
+    const localDate = findLatestCheckInDateForUserFromLocal(userId, name);
+    if (localDate) return localDate;
+
+    // 4) Final fallback cutoff logic
+    return getEffectiveDateFallback("check-out", nowObj || now());
 }
 
 async function renderLogs() {
@@ -1621,14 +1725,15 @@ async function renderLogs() {
     if (server.ok && Array.isArray(server.data?.logs)) {
         let logs = server.data.logs || [];
 
-        // ✅ Pull early-morning OUT logs from next day and show them under the selected date
+        // ✅ Pull overnight OUT logs from next day (fallback display merge)
         const nextDate = addDaysToDateStr(dateStr, +1);
         const next = await fetchServerLogsByDate(nextDate);
 
         if (next.ok && Array.isArray(next.data?.logs)) {
             const extraOuts = (next.data.logs || []).filter((r) => {
                 const t = String(r?.type || "").toLowerCase();
-                const isOut = t === "out" || t === "check-out" || t === "time-out";
+                const isOut =
+                    t === "out" || t === "check-out" || t === "time-out";
                 if (!isOut) return false;
                 return shouldAssignOutLogToPreviousDate(r.occurred_at);
             });
@@ -1834,7 +1939,6 @@ async function attendance(type, opts = { auto: false }) {
     const isAuto = !!opts?.auto;
     const selectedDate = ui.datePicker?.value || isoDateLocal();
     const todayStr = getTodayStr();
-    const yestStr = getYesterdayStr();
     const nowObj = now();
 
     if (attendanceInProgress) return;
@@ -1851,20 +1955,13 @@ async function attendance(type, opts = { auto: false }) {
             }
         }
 
-        // ✅ Check-out rules (overnight allowed):
-        // - allow if selected date == today
-        // - OR allow if selected date == yesterday AND time is before cutoff hour
+        // ✅ Check-out rules (UPDATED):
+        // Allow Time-Out if selected date is within last CHECKOUT_MAX_PAST_DAYS (default: today/yesterday)
         if (type === "check-out") {
-            const okOut =
-                selectedDate === todayStr ||
-                (selectedDate === yestStr && isOvernightWindow(nowObj));
-
-            if (!okOut) {
+            if (!isCheckOutAllowedNow()) {
                 if (!isAuto) {
                     appendStatus(
-                        `Check-out blocked: You can check-out on TODAY, or on YESTERDAY only before ${String(
-                            OVERNIGHT_CUTOFF_HOUR
-                        ).padStart(2, "0")}:00 (overnight shift).`
+                        `Check-out blocked: you can time-out for dates within the last ${CHECKOUT_MAX_PAST_DAYS} day(s).`
                     );
                 }
                 return;
@@ -1905,20 +2002,23 @@ async function attendance(type, opts = { auto: false }) {
             return;
         }
 
+        // ✅ pre-match for both check-in and check-out (needed to compute effective out date)
+        const pre = await serverMatchDescriptor(scan.descriptor, threshold);
+        if (!pre?.matched || !pre?.user?.name) {
+            if (!isAuto) appendStatus(`${type} blocked: Not registered.`);
+            return;
+        }
+
+        const userIdPre = pre.user?.id ?? null;
+        const namePre = pre.user?.name || "Unknown";
+
         // ✅ TIME-IN CONFIRMATION (registered only)
         if (type === "check-in") {
-            const pre = await serverMatchDescriptor(scan.descriptor, threshold);
-
-            if (!pre?.matched || !pre?.user?.name) {
-                if (!isAuto) appendStatus("Time-In blocked: Not registered.");
-                return;
-            }
-
-            const uid = pre.user?.id ?? null;
+            const uid = userIdPre;
 
             if (!canPromptTimeIn(uid)) return;
 
-            const ok = await confirmTimeInPopup(pre.user.name);
+            const ok = await confirmTimeInPopup(namePre);
             if (!ok) {
                 markTimeInPrompted(uid);
                 if (!isAuto) appendStatus("Time-In cancelled.");
@@ -1932,10 +2032,18 @@ async function attendance(type, opts = { auto: false }) {
         );
         const apiType = type === "check-in" ? "in" : "out";
 
-        // ✅ Effective date (overnight shift):
+        // ✅ Effective date (UPDATED):
         // - check-in: today
-        // - check-out: if early morning, assign to yesterday
-        const effectiveDate = getEffectiveDateForAction(type, nowObj);
+        // - check-out: the date of the user's last time-in (shift date)
+        const effectiveDate =
+            type === "check-in"
+                ? todayStr
+                : await resolveEffectiveDateForCheckOut({
+                      userId: userIdPre,
+                      name: namePre,
+                      selectedDate,
+                      nowObj,
+                  });
 
         const r = await safeFetchJson("/api/attendance/clock", {
             method: "POST",
@@ -1947,7 +2055,7 @@ async function attendance(type, opts = { auto: false }) {
                 device_id: "kiosk-1",
                 photo_data_url: photo || null,
 
-                // ✅ Send hint to server (optional). If server ignores, UI still works.
+                // ✅ IMPORTANT: tell server to store Time-Out under the Time-In date
                 effective_date: effectiveDate,
             }),
         });
@@ -1962,8 +2070,8 @@ async function attendance(type, opts = { auto: false }) {
             return;
         }
 
-        const userId = r.data?.user?.id ?? null;
-        const name = r.data?.user?.name || "Unknown";
+        const userId = r.data?.user?.id ?? userIdPre ?? null;
+        const name = r.data?.user?.name || namePre || "Unknown";
 
         if (type === "check-in") {
             scanSuccessFlashUntil = Date.now() + 1200;
@@ -1992,13 +2100,13 @@ async function attendance(type, opts = { auto: false }) {
 
         showRightToast({
             name,
-            date: effectiveDate, // ✅ show effective date (overnight-aware)
+            date: effectiveDate, // ✅ show effective date (Time-In date for Time-Out)
             time: timeLocal(nowObj),
             action: actionLabel,
             photoDataUrl: photo || null,
         });
 
-        // ✅ Save UI cache under effective date (overnight-aware)
+        // ✅ Save UI cache under effective date
         addLog(effectiveDate, {
             name,
             type,
@@ -2008,7 +2116,7 @@ async function attendance(type, opts = { auto: false }) {
             server_log_id: r.data?.log_id ?? null,
 
             // store real datetime for debugging if needed
-            occurred_at_real: `${todayStr} ${timeLocal(nowObj)}`,
+            occurred_at_real: `${isoDateLocal(nowObj)} ${timeLocal(nowObj)}`,
         });
 
         renderLogs();
@@ -2119,7 +2227,7 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
     // ✅ fetch selected date logs
     const server = await fetchServerLogsByDate(dateStr);
 
-    // ✅ also fetch next day logs to pull early-morning OUT into selected date export
+    // ✅ also fetch next day logs (fallback merge for early OUT)
     const nextDate = addDaysToDateStr(dateStr, +1);
     const serverNext = await fetchServerLogsByDate(nextDate);
 
@@ -2147,15 +2255,21 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
                 const role = resolvePersonRole(userId, name, roleFromLog);
 
                 const typ = String(r.type || "").toLowerCase();
-                const isOut = typ === "out" || typ === "check-out" || typ === "time-out";
+                const isOut =
+                    typ === "out" || typ === "check-out" || typ === "time-out";
+
                 const effDate =
-                    isOut && r.occurred_at && shouldAssignOutLogToPreviousDate(r.occurred_at)
+                    isOut &&
+                    r.occurred_at &&
+                    shouldAssignOutLogToPreviousDate(r.occurred_at)
                         ? addDaysToDateStr(isoDateLocal(new Date(r.occurred_at)), -1)
-                        : (dt ? isoDateLocal(dt) : dateStr);
+                        : dt
+                        ? isoDateLocal(dt)
+                        : dateStr;
 
                 return {
                     effective_date: effDate,
-                    date: effDate, // keep existing column name as "date"
+                    date: effDate,
                     occurred_at: r.occurred_at || "",
                     time: dt ? timeLocal(dt) : "",
                     name,
@@ -2175,9 +2289,8 @@ async function downloadDayXlsx({ includePhotoDataUrl = false } = {}) {
                             : JSON.stringify(r.meta),
                 };
             })
-            // ✅ only keep rows that belong to selected export date
             .filter((row) => row.effective_date === dateStr)
-            .map(({ effective_date, ...rest }) => rest); // remove helper field
+            .map(({ effective_date, ...rest }) => rest);
     } else {
         raw = getLogsForDate(dateStr).map((r) => {
             const userId = r?.user_id || "";
@@ -2534,7 +2647,7 @@ function bindEvents() {
         if (ui.nowLabel)
             ui.nowLabel.textContent = `Now: ${isoDateLocal(d)} ${timeLocal(d)}`;
 
-        // ✅ keep buttons correct as date changes overnight
+        // ✅ keep buttons correct
         updateCheckButtonsState();
         syncAutoCheckIn();
     };
@@ -2569,15 +2682,19 @@ function bindEvents() {
         appendStatus("Check-out is MANUAL (must click the button).");
 
         appendStatus(
-            `Overnight rule: TIME-OUT before ${String(
-                OVERNIGHT_CUTOFF_HOUR
-            ).padStart(2, "0")}:00 will be recorded to the previous date (Time-In date).`
+            `✅ New rule: TIME-OUT will be recorded on the employee's last TIME-IN date (shift date). Example: Jan 16 10PM in, Jan 17 7AM out => recorded under Jan 16.`
         );
 
         appendStatus(
-            `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${
-                PERF.LIVE_SCAN_INTERVAL_MS
-            }ms, landmarks=${PERF.DRAW_LANDMARKS ? "ON" : "OFF"}`
+            `Fallback window (only if last time-in date can't be resolved): OUT before ${String(
+                OVERNIGHT_CUTOFF_HOUR
+            ).padStart(2, "0")}:59 will be treated as previous date.`
+        );
+
+        appendStatus(
+            `Lite mode: live inputSize=${PERF.LIVE_INPUT_SIZE}, interval=${PERF.LIVE_SCAN_INTERVAL_MS}ms, landmarks=${
+                PERF.DRAW_LANDMARKS ? "ON" : "OFF"
+            }`
         );
 
         appendStatus(
@@ -2887,3 +3004,128 @@ function getRosterStatusForExport(dateStr, userId, name) {
 
             document.documentElement.classList.toggle("dark", theme === "dark");
         })();
+
+
+        // ✅ Always show "Set Status" dropdown even after role filtering (NO HTML changes)
+(function ensureRosterStatusAlwaysVisible() {
+    function buildStatusSelect(dateStr, userKey, displayName) {
+        const wrap = document.createElement("div");
+        wrap.className = "shrink-0";
+
+        const sel = document.createElement("select");
+        sel.setAttribute("data-roster-key", String(userKey));
+        sel.className =
+            "rounded-xl bg-black border border-white/10 px-3 py-2 text-xs text-slate-100";
+
+        sel.innerHTML = `
+            <option value="present">Set Status</option>
+            <option value="absent">Absent</option>
+            <option value="half_day">Half day</option>
+            <option value="day_off">Day off</option>
+        `;
+
+        // set current value from store
+        try {
+            sel.value = getStatusFor(dateStr, userKey) || "present";
+        } catch (e) {
+            sel.value = "present";
+        }
+
+        sel.addEventListener("change", () => {
+            const v = sel.value || "present";
+            setStatusFor(dateStr, userKey, v);
+
+            // optional: if you have appendStatus()
+            if (typeof appendStatus === "function") {
+                appendStatus(`Roster: ${displayName} = ${String(v).replaceAll("_", " ")}`);
+            }
+        });
+
+        wrap.appendChild(sel);
+        return wrap;
+    }
+
+    function findNameFromCard(card) {
+        // Try common "name" targets (adjusts to your existing card markup)
+        const candidates = [
+            card.querySelector(".text-sm.font-semibold"),
+            card.querySelector(".font-semibold"),
+            card.querySelector("[data-name]"),
+        ].filter(Boolean);
+
+        const el = candidates[0] || null;
+        const name = (el?.textContent || "").trim();
+        return name || "";
+    }
+
+    function injectStatusDropdowns() {
+        const list = document.getElementById("adminRosterList");
+        if (!list) return;
+
+        const dateStr = document.getElementById("datePicker")?.value || (typeof isoDateLocal === "function" ? isoDateLocal() : "");
+
+        // Each "card" is a direct child in your #adminRosterList
+        const cards = Array.from(list.children || []);
+        for (const card of cards) {
+            if (!(card instanceof HTMLElement)) continue;
+
+            // Already has status select? just ensure it has correct value for current date
+            const existing = card.querySelector('select[data-roster-key]');
+            if (existing) {
+                const key = existing.getAttribute("data-roster-key") || "";
+                try {
+                    existing.value = getStatusFor(dateStr, key) || "present";
+                } catch (e) {
+                    existing.value = existing.value || "present";
+                }
+                continue;
+            }
+
+            // Build key from displayed name (works if names are unique in your roster)
+            const displayName = findNameFromCard(card);
+            if (!displayName) continue;
+
+            const userKey = displayName; // use name as key (matches your localStorage approach)
+
+            const selWrap = buildStatusSelect(dateStr, userKey, displayName);
+
+            // Try to attach to an existing top row if it's flex/justify-between, else append neatly.
+            const topRow =
+                card.querySelector(".flex.items-center.justify-between") ||
+                card.querySelector(".flex.items-start.justify-between") ||
+                card.querySelector(".flex.justify-between");
+
+            if (topRow) {
+                topRow.appendChild(selWrap);
+            } else {
+                // fallback: append at bottom
+                selWrap.classList.add("mt-2");
+                card.appendChild(selWrap);
+            }
+        }
+    }
+
+    // Run once on load
+    document.addEventListener("DOMContentLoaded", () => {
+        injectStatusDropdowns();
+
+        // Re-inject whenever roster list changes (e.g., role filtering rerenders)
+        const list = document.getElementById("adminRosterList");
+        if (!list) return;
+
+        const mo = new MutationObserver(() => injectStatusDropdowns());
+        mo.observe(list, { childList: true, subtree: true });
+
+        // Also run whenever role filter changes (extra safety)
+        const roleFilter = document.getElementById("rosterRoleFilter");
+        if (roleFilter) {
+            roleFilter.addEventListener("change", () => {
+                // wait for whatever render happens, then inject
+                setTimeout(injectStatusDropdowns, 0);
+            });
+        }
+    });
+
+    // If you call renderAdminRoster() manually anywhere, you can also call:
+    // injectStatusDropdowns();
+})();
