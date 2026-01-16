@@ -1715,6 +1715,153 @@ async function resolveEffectiveDateForCheckOut({
     return getEffectiveDateFallback("check-out", nowObj || now());
 }
 
+/**
+ * ✅ NEW: prevent TIME-IN confirmation (and prevent TIME-IN) if the person has NOT TIME-OUT yet.
+ * We treat "open shift" as: last event for that user on the shift date is an IN (no OUT after it).
+ *
+ * Sources checked (fast -> best):
+ * 1) Local UI cache logs for the date
+ * 2) Server logs for the date (if /api/attendance/logs exists)
+ *
+ * Cached briefly to avoid spamming server while face is visible.
+ */
+const OPEN_SHIFT_CACHE_TTL_MS = 15000;
+const openShiftCache = new Map(); // key -> { at, value }
+let lastOpenShiftNoticeAt = 0;
+
+function makeOpenShiftKey(dateStr, userId, name) {
+    const uid = userId != null ? String(userId) : "";
+    const nm = String(name || "").trim().toLowerCase();
+    return `${dateStr}::${uid || "noid"}::${nm || "noname"}`;
+}
+
+function getCachedOpenShift(dateStr, userId, name) {
+    const k = makeOpenShiftKey(dateStr, userId, name);
+    const hit = openShiftCache.get(k);
+    if (!hit) return null;
+    if (Date.now() - hit.at > OPEN_SHIFT_CACHE_TTL_MS) {
+        openShiftCache.delete(k);
+        return null;
+    }
+    return !!hit.value;
+}
+
+function setCachedOpenShift(dateStr, userId, name, value) {
+    const k = makeOpenShiftKey(dateStr, userId, name);
+    openShiftCache.set(k, { at: Date.now(), value: !!value });
+}
+
+function normalizeLogTypeToInOut(t) {
+    const v = String(t || "").toLowerCase().trim();
+    if (v === "in" || v === "time-in" || v === "time_in" || v === "check-in" || v === "check_in")
+        return "in";
+    if (v === "out" || v === "time-out" || v === "time_out" || v === "check-out" || v === "check_out")
+        return "out";
+    return "";
+}
+
+function logBelongsToUser(r, userId, name) {
+    const uid = userId != null ? String(userId) : "";
+    const nm = String(name || "").trim().toLowerCase();
+
+    const rid =
+        r?.user_id != null ? String(r.user_id) :
+        r?.user?.id != null ? String(r.user.id) :
+        "";
+
+    const rname = String(r?.name || r?.user_name || r?.user?.name || "").trim().toLowerCase();
+
+    if (uid && rid) return uid === rid;
+    if (!uid && nm && rname) return nm === rname;
+    // if we have uid but server doesn't return user_id, fallback to name compare
+    if (uid && !rid && nm && rname) return nm === rname;
+
+    return false;
+}
+
+function getLogTimeMs(r, dateStr) {
+    // Prefer occurred_at if real datetime
+    const occ = r?.occurred_at || r?.occurred_at_real || r?.occurredAt || r?.created_at || r?.createdAt || null;
+    if (occ) {
+        const dt = new Date(occ);
+        if (!Number.isNaN(dt.getTime())) return dt.getTime();
+    }
+
+    // Fallback to "date + time" from local cache
+    const t = String(r?.time || "").trim();
+    if (dateStr && t && /^\d{2}:\d{2}:\d{2}$/.test(t)) {
+        const dt = new Date(`${dateStr}T${t}`);
+        if (!Number.isNaN(dt.getTime())) return dt.getTime();
+    }
+
+    return 0;
+}
+
+function computeOpenShiftFromLogs(logs, dateStr, userId, name) {
+    const list = Array.isArray(logs) ? logs : [];
+    const filtered = list
+        .filter((r) => r && logBelongsToUser(r, userId, name))
+        .map((r) => {
+            const kind = normalizeLogTypeToInOut(r?.type);
+            return {
+                kind,
+                ms: getLogTimeMs(r, dateStr),
+            };
+        })
+        .filter((x) => x.kind);
+
+    if (!filtered.length) return false;
+
+    // Find the last event by time; if time missing, order may be wrong but still OK.
+    filtered.sort((a, b) => (a.ms || 0) - (b.ms || 0));
+    const last = filtered[filtered.length - 1];
+    return last?.kind === "in";
+}
+
+async function hasOpenShiftForUserOnDate(dateStr, userId, name) {
+    const cached = getCachedOpenShift(dateStr, userId, name);
+    if (cached !== null) return cached;
+
+    // 1) Local UI cache first (fast)
+    try {
+        const localLogs = getLogsForDate(dateStr);
+        const localOpen = computeOpenShiftFromLogs(localLogs, dateStr, userId, name);
+        if (localOpen) {
+            setCachedOpenShift(dateStr, userId, name, true);
+            return true;
+        }
+    } catch (_) {}
+
+    // 2) Server logs if available
+    const server = await fetchServerLogsByDate(dateStr);
+    if (server.ok && Array.isArray(server.data?.logs)) {
+        const open = computeOpenShiftFromLogs(server.data.logs, dateStr, userId, name);
+        setCachedOpenShift(dateStr, userId, name, open);
+        return open;
+    }
+
+    // If server unavailable and local didn't show open, assume not open.
+    setCachedOpenShift(dateStr, userId, name, false);
+    return false;
+}
+
+function maybeNoticeOpenShift(name, isAuto) {
+    // Don't spam message every 2s on auto
+    if (isAuto) return;
+    const nowMs = Date.now();
+    if (nowMs - lastOpenShiftNoticeAt < 6000) return;
+    lastOpenShiftNoticeAt = nowMs;
+
+    appendStatus(
+        `${name || "Employee"} already has an active TIME-IN (no TIME-OUT yet). Please TIME-OUT first.`
+    );
+
+    window.toastSwal?.(
+        `${name || "Employee"} is already Time-In. Please Time-Out first.`,
+        "info"
+    );
+}
+
 async function renderLogs() {
     if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
 
@@ -2012,7 +2159,18 @@ async function attendance(type, opts = { auto: false }) {
         const userIdPre = pre.user?.id ?? null;
         const namePre = pre.user?.name || "Unknown";
 
-        // ✅ TIME-IN CONFIRMATION (registered only)
+        // ✅ TIME-IN RULE UPDATE (your request):
+        // If the person did NOT TIME-OUT yet (incomplete IN/OUT), do NOT show confirmation.
+        // Instead: block the new Time-In and tell them to Time-Out first (manual only).
+        if (type === "check-in") {
+            const open = await hasOpenShiftForUserOnDate(todayStr, userIdPre, namePre);
+            if (open) {
+                maybeNoticeOpenShift(namePre, isAuto);
+                return;
+            }
+        }
+
+        // ✅ TIME-IN CONFIRMATION (registered only) — ONLY when NOT open-shift
         if (type === "check-in") {
             const uid = userIdPre;
 
@@ -2072,6 +2230,12 @@ async function attendance(type, opts = { auto: false }) {
 
         const userId = r.data?.user?.id ?? userIdPre ?? null;
         const name = r.data?.user?.name || namePre || "Unknown";
+
+        // Update open-shift cache immediately (so next scans behave correctly)
+        try {
+            if (type === "check-in") setCachedOpenShift(todayStr, userId, name, true);
+            if (type === "check-out") setCachedOpenShift(effectiveDate, userId, name, false);
+        } catch (_) {}
 
         if (type === "check-in") {
             scanSuccessFlashUntil = Date.now() + 1200;
@@ -2686,6 +2850,10 @@ function bindEvents() {
         );
 
         appendStatus(
+            `✅ New rule: TIME-IN confirmation will NOT appear if the employee has an active TIME-IN without TIME-OUT (it will block and ask to TIME-OUT first).`
+        );
+
+        appendStatus(
             `Fallback window (only if last time-in date can't be resolved): OUT before ${String(
                 OVERNIGHT_CUTOFF_HOUR
             ).padStart(2, "0")}:59 will be treated as previous date.`
@@ -3006,7 +3174,7 @@ function getRosterStatusForExport(dateStr, userId, name) {
         })();
 
 
-        // ✅ Always show "Set Status" dropdown even after role filtering (NO HTML changes)
+// ✅ Always show "Set Status" dropdown even after role filtering (NO HTML changes)
 (function ensureRosterStatusAlwaysVisible() {
     function buildStatusSelect(dateStr, userKey, displayName) {
         const wrap = document.createElement("div");
