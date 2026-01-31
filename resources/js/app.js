@@ -58,13 +58,41 @@ btnStop.onclick = stopCamera;
 
 /* ---------------- EMPLOYEES ---------------- */
 
+/* ---------------- EMPLOYEES ---------------- */
+
 async function loadEmployees() {
-    const res = await fetch("/api/face/profiles", {
+    const res = await fetch("/api/employees", {
         headers: { Accept: "application/json" },
     });
+
     const data = await res.json();
-    employees = Array.isArray(data?.profiles) ? data.profiles : [];
+    employees = Array.isArray(data?.employees) ? data.employees : [];
 }
+
+employeeSearch.oninput = () => {
+    const q = employeeSearch.value.toLowerCase().trim();
+    employeeResults.innerHTML = "";
+
+    if (!q) return;
+
+    employees
+        .filter((e) => (e.name || "").toLowerCase().includes(q))
+        .slice(0, 30)
+        .forEach((emp) => {
+            const div = document.createElement("div");
+            div.className = "px-3 py-2 hover:bg-white/10 cursor-pointer";
+            div.textContent = `${emp.name} — ${emp.role?.name || "No Role"}`;
+
+            div.onclick = () => {
+                selectedEmployee = emp;
+                employeeSearch.value = emp.name;
+                employeeResults.innerHTML = "";
+            };
+
+            employeeResults.appendChild(div);
+        });
+};
+
 
 employeeSearch.oninput = () => {
     const q = employeeSearch.value.toLowerCase();

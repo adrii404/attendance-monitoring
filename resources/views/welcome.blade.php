@@ -1,29 +1,11 @@
-<!DOCTYPE html>
-<html lang="en">
+@extends('layouts.app')
 
-<head>
-    <meta charset="utf-8">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Attendance Capture</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+@php
+    $title = 'Attendance Capture';
+    $header = '📸 Attendance Capture System';
+@endphp
 
-    <!-- SheetJS -->
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-
-    <!-- JSZip (for ZIP export with images) -->
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
-</head>
-
-<body class="min-h-screen bg-slate-950 text-slate-100">
-
-    <header class="border-b border-white/10 px-4 py-3 text-lg font-semibold">
-        📸 Attendance Capture System
-    </header>
-
+@section('content')
     <main class="p-4 max-w-7xl mx-auto grid grid-cols-1 xl:grid-cols-[2fr_3fr] gap-6">
 
         <!-- LEFT: CAMERA + ACTIONS -->
@@ -86,8 +68,7 @@
                 <div class="flex gap-2">
                     <button id="btnExportXlsx" class="px-3 py-2 rounded-xl bg-white/10 text-sm">Export Excel</button>
                     <button id="btnExportJson" class="px-3 py-2 rounded-xl bg-white/10 text-sm">Export JSON</button>
-                    <button id="btnExportZip" class="px-3 py-2 rounded-xl bg-white/10 text-sm">Export ZIP
-                        (Images)</button>
+                    <button id="btnExportZip" class="px-3 py-2 rounded-xl bg-white/10 text-sm">Export ZIP (Images)</button>
                 </div>
             </div>
 
@@ -103,8 +84,6 @@
                             <th class="px-3 py-2">Hours</th>
                         </tr>
                     </thead>
-
-                    </thead>
                     <tbody id="logsTbody" class="divide-y divide-white/10"></tbody>
                 </table>
             </div>
@@ -112,7 +91,4 @@
         </section>
 
     </main>
-
-</body>
-
-</html>
+@endsection

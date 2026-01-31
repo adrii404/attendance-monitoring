@@ -8,6 +8,8 @@ use App\Http\Controllers\Api\FaceController;
 use App\Http\Controllers\API\AttendanceCaptureController;
 use App\Http\Controllers\API\AttendanceSummaryController;
 
+use App\Http\Controllers\API\EmployeeController;
+
 Route::post('/attendance/capture', [AttendanceCaptureController::class, 'store']);
 Route::get('/attendance/summary', [AttendanceSummaryController::class, 'index']);
 
@@ -50,5 +52,8 @@ Route::get('/attendance/status/{user}', function ($userId) {
         'last_at' => $lastLog?->occurred_at,
     ]);
 });
+
+
+Route::get('/employees', [EmployeeController::class, 'index']);
 
 
