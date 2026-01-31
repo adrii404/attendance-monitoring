@@ -9,3 +9,11 @@
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
 }
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+button:disabled:hover {
+    filter: none;
+}
