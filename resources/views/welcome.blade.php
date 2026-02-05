@@ -86,10 +86,34 @@
                   <span id="nowLabel">—</span>
                 </div>
               </div>
-
               <div class="mt-2 space-y-3" id="scheduleTables">
                 <!-- JS will render one table per schedule here -->
-              </div>
+                </div>
+              <div id="pendingObWrap" class="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/30">
+                <div class="flex items-center justify-between bg-white/10 px-3 py-2">
+                    <div class="text-xs font-semibold text-slate-200">Pending Official Business</div>
+                    <div class="text-[11px] text-slate-400"><span id="pendingObCount">0</span> pending</div>
+                </div>
+
+                <div class="scrollbar-att max-h-[14em] overflow-y-auto rounded-b-2xl bg-slate-950/20">
+                    <table class="w-full text-left text-xs">
+                    <thead class="sticky top-0 bg-slate-950/60 text-slate-200 backdrop-blur">
+                        <tr>
+                        <th class="px-3 py-2">Name</th>
+                        <th class="px-3 py-2">Schedule</th>
+                        <th class="px-3 py-2">Type</th>
+                        <th class="px-3 py-2">Requested At</th>
+                        <th class="px-3 py-2">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendingObBody" class="divide-y divide-white/10">
+                        <tr>
+                        <td class="px-3 py-3 text-slate-400" colspan="5">Loading…</td>
+                        </tr>
+                    </tbody>
+                    </table>
+                </div>
+                </div>
             </div>
 
             <div class="mt-4 flex justify-end gap-2">

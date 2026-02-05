@@ -12,6 +12,35 @@ use Illuminate\Validation\Rule;
 
 class OfficialBusinessController extends Controller
 {
+
+    public function index(Request $request)
+    {
+        $status = $request->query('status'); // e.g. pending
+
+        $q = \App\Models\OfficialBusiness::query()
+            ->with(['user:id,name', 'schedule:id,description'])
+            ->orderByDesc('requested_at');
+
+        if ($status) {
+            $q->where('status', $status);
+        }
+
+        $items = $q->limit(200)->get();
+
+        return response()->json([
+            'items' => $items->map(function ($ob) {
+                return [
+                    'id'           => $ob->id,
+                    'name'         => $ob->user?->name,
+                    'schedule'     => $ob->schedule?->description,
+                    'type'         => $ob->type, // in|out
+                    'requested_at' => optional($ob->requested_at)->format('Y-m-d H:i:s'),
+                    'status'       => $ob->status,
+                ];
+            }),
+        ]);
+    }
+
     public function store(Request $request)
     {
         // ✅ Validate payload coming from your app.js

@@ -48,6 +48,8 @@ const ui = {
   status: el("status"),
   enrollRole: el("enrollRole"),
   enrollSchedule: el("enrollSchedule"),
+  pendingObBody: el("pendingObBody"),
+  pendingObCount: el("pendingObCount"),
 
   btnStart: el("btnStart"),
   btnStop: el("btnStop"),
@@ -292,6 +294,51 @@ async function serverMatchDescriptor(descriptor, threshold) {
     serverMatchInFlight = false;
   }
 }
+
+async function renderPendingOb() {
+  if (!ui.pendingObBody || !ui.pendingObCount) return;
+
+  ui.pendingObBody.innerHTML = `
+    <tr><td class="px-3 py-3 text-slate-400" colspan="5">Loading…</td></tr>
+  `;
+
+  const r = await safeFetchJson("/api/official-businesses?status=pending", { method: "GET" });
+
+  if (!r.ok || !Array.isArray(r.data?.items)) {
+    ui.pendingObCount.textContent = "0";
+    ui.pendingObBody.innerHTML = `
+      <tr><td class="px-3 py-3 text-slate-400" colspan="5">Failed to load pending OB.</td></tr>
+    `;
+    return;
+  }
+
+  const items = r.data.items;
+  ui.pendingObCount.textContent = String(items.length);
+
+  if (!items.length) {
+    ui.pendingObBody.innerHTML = `
+      <tr><td class="px-3 py-3 text-slate-400" colspan="5">No pending OB requests.</td></tr>
+    `;
+    return;
+  }
+
+  const typeLabel = (t) => (t === "in" ? "Check-in" : t === "out" ? "Check-out" : (t || "—"));
+  const statusClass = (s) =>
+    s === "pending" ? "text-amber-300" :
+    s === "approved" ? "text-emerald-300" :
+    s === "rejected" ? "text-rose-300" : "text-slate-200";
+
+  ui.pendingObBody.innerHTML = items.map((x) => `
+    <tr class="text-slate-200">
+      <td class="px-3 py-2 font-semibold">${escapeHtml(x.name || "—")}</td>
+      <td class="px-3 py-2">${escapeHtml(x.schedule || "—")}</td>
+      <td class="px-3 py-2">${escapeHtml(typeLabel(x.type))}</td>
+      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(x.requested_at || "—")}</td>
+      <td class="px-3 py-2 font-semibold ${statusClass(x.status)}">${escapeHtml(x.status || "—")}</td>
+    </tr>
+  `).join("");
+}
+
 
 let stream = null;
 let facingMode = "user";
@@ -1648,6 +1695,7 @@ async function submitObRequest() {
     obShowStatus("Request submitted ✅ (Pending approval)");
     appendStatus(`OB: Submitted ✅ user_id=${user_id} schedule_id=${schedule_id} requested_at=${requested_at}`);
     // close after a short delay
+    renderPendingOb();
     setTimeout(() => closeObModal(), 800);
   } finally {
     if (m.submit) {
@@ -1827,6 +1875,8 @@ function bindEvents() {
   renderProfiles();
   renderLogs();
   updateCheckButtonsState();
+
+  renderPendingOb();
 
   try {
     await loadModels();

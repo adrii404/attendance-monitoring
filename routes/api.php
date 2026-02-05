@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\OfficialBusinessController;
 
 
+
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
@@ -28,4 +29,5 @@ Route::post('/attendance/clock', [AttendanceController::class, 'clock']);
 Route::get('/face/profiles', [FaceController::class, 'profiles']);   // optional: show enrolled list
 Route::get('/attendance/logs', [AttendanceController::class, 'logs']); // optional: load logs by date
 
+Route::get('/official-businesses', [OfficialBusinessController::class, 'index']);
 Route::post('/official-businesses', [OfficialBusinessController::class, 'store']);
