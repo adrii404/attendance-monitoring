@@ -146,20 +146,19 @@ class AttendanceController extends Controller
         $logs = AttendanceLog::query()
             ->with([
                 'user:id,name,contact_number,schedule_id',
-                'schedule:id,description,clock_in,clock_out',
+                'schedule:id,description,clock_in,clock_out'
             ])
             ->whereBetween('occurred_at', [$start, $end])
             ->orderBy('occurred_at')
-            ->get(['id', 'user_id', 'schedule_id', 'type', 'occurred_at', 'photo_path', 'device_id', 'meta']);
+            ->get(['id','user_id','schedule_id','type','occurred_at','photo_path','device_id','meta']);
+    
 
         return response()->json([
             'success' => true,
             'date' => $date,
-            'logs' => $logs->map(fn ($l) => [
+            'logs' => $logs->map(fn($l) => [
                 'id' => $l->id,
                 'user_id' => $l->user_id,
-                'name' => $l->user?->name,
-                'contact_number' => $l->user?->contact_number,
                 'schedule_id' => $l->schedule_id,
                 'schedule' => $l->schedule ? [
                     'id' => $l->schedule->id,
@@ -167,6 +166,9 @@ class AttendanceController extends Controller
                     'clock_in' => $l->schedule->clock_in,
                     'clock_out' => $l->schedule->clock_out,
                 ] : null,
+            
+                'name' => $l->user?->name,
+                'contact_number' => $l->user?->contact_number,
                 'type' => $l->type,
                 'occurred_at' => $l->occurred_at?->toISOString(),
                 'photo_path' => $l->photo_path,

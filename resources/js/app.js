@@ -197,7 +197,7 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
 
   const wrap = document.createElement("div");
   wrap.className =
-    "w-full rounded-3xl border border-white/10 bg-white/5 p-4 shadow " +
+    "w-full rounded-3xl border border-white/10 bg-white/5 p-4 shadow mb-4 " +
     "flex flex-row gap-4 opacity-0 transition-opacity duration-500";
 
   wrap.innerHTML = `
@@ -1063,123 +1063,146 @@ async function renderProfiles() {
 }
 
 async function renderLogs() {
-  if (!ui.logsTbody || !ui.logsCount || !ui.datePicker) return;
+  const holder = document.getElementById("scheduleTables");
+  if (!holder || !ui.logsCount || !ui.datePicker) return;
 
   const dateStr = ui.datePicker.value || isoDateLocal();
 
-  // Try DB-backed logs first (optional endpoint)
   const server = await safeFetchJson(
     `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
     { method: "GET" }
   );
 
-  if (server.ok && Array.isArray(server.data?.logs)) {
-    const logs = server.data.logs;
+  // schedules from blade
+  const schedules = Array.isArray(window.__SCHEDULES__) ? window.__SCHEDULES__ : [];
 
-    // Convert server logs -> per-person summary (same UI)
-    const map = new Map();
+  // Build base groups (one per schedule + Unassigned)
+  const groups = new Map();
+  for (const s of schedules) {
+    groups.set(String(s.id), {
+      id: s.id,
+      title: s.description || `Schedule #${s.id}`,
+      rows: new Map(), // name -> { name, time_in, time_out }
+    });
+  }
+  groups.set("unassigned", {
+    id: null,
+    title: "Unassigned Schedule",
+    rows: new Map(),
+  });
 
-    for (const r of logs) {
-      const name = r.name || "User " + r.user_id;
-      if (!map.has(name)) {
-        map.set(name, {
-          name,
-          time_in: null,
-          time_out: null,
-          photo_in: null,
-          photo_out: null,
-        });
-      }
-      const item = map.get(name);
+  holder.innerHTML = "";
 
-      const t = r.occurred_at ? new Date(r.occurred_at) : null;
-      const timeStr = t ? timeLocal(t) : "—";
-
-      if (r.type === "in") {
-        if (!item.time_in) item.time_in = timeStr;
-      } else if (r.type === "out") {
-        item.time_out = timeStr;
-      }
-    }
-
-    const rows = Array.from(map.values());
-    rows.sort((a, b) => a.name.localeCompare(b.name));
-
-    ui.logsCount.textContent = String(rows.length);
-    ui.logsTbody.innerHTML = "";
-
-    if (!rows.length) {
-      ui.logsTbody.innerHTML = `
-        <tr>
-          <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
-        </tr>
-      `;
-      return;
-    }
-
-    for (const r of rows) {
-      const tr = document.createElement("tr");
-      tr.className = "text-slate-200";
-
-      tr.innerHTML = `
-        <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-          r.time_in || "—"
-        )}</td>
-        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-          r.time_out || "—"
-        )}</td>
-        <td class="px-3 py-2">
-          <span class="text-slate-500 text-[11px]">—</span>
-        </td>
-      `;
-      ui.logsTbody.appendChild(tr);
-    }
-
+  if (!server.ok || !Array.isArray(server.data?.logs)) {
+    holder.innerHTML = `
+      <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-300">
+        Failed to load logs for ${escapeHtml(dateStr)}.
+      </div>
+    `;
+    ui.logsCount.textContent = "0";
     return;
   }
 
-  // Fallback to local UI cache
-  const rows = buildDaySummary(dateStr);
+  const logs = server.data.logs;
 
-  ui.logsCount.textContent = String(rows.length);
-  ui.logsTbody.innerHTML = "";
+  // Convert logs -> per schedule -> per person summary
+  for (const r of logs) {
+    const name = r.name || `User ${r.user_id}`;
+    const sid = r.schedule_id ? String(r.schedule_id) : "unassigned";
+    const group = groups.get(sid) || groups.get("unassigned");
 
-  if (!rows.length) {
-    ui.logsTbody.innerHTML = `
-      <tr>
-        <td class="px-3 py-3 text-slate-400" colspan="4">No logs for ${dateStr}.</td>
-      </tr>
-    `;
-    return;
+    if (!group.rows.has(name)) {
+      group.rows.set(name, { name, time_in: null, time_out: null });
+    }
+    const item = group.rows.get(name);
+
+    const t = r.occurred_at ? new Date(r.occurred_at) : null;
+    const timeStr = t ? timeLocal(t) : "—";
+
+    if (r.type === "in") {
+      // earliest in
+      if (!item.time_in || timeStr < item.time_in) item.time_in = timeStr;
+    } else if (r.type === "out") {
+      // latest out
+      if (!item.time_out || timeStr > item.time_out) item.time_out = timeStr;
+    }
   }
 
-  for (const r of rows) {
-    const tr = document.createElement("tr");
-    tr.className = "text-slate-200";
+  // Count unique people across all groups
+  let totalPeople = 0;
+  for (const g of groups.values()) totalPeople += g.rows.size;
+  ui.logsCount.textContent = String(totalPeople);
 
-    const photo = r.photo_in || r.photo_out || null;
+  // Render: tables per schedule (only show if it has people)
+  const renderGroup = (g) => {
+    const rows = Array.from(g.rows.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
 
-    tr.innerHTML = `
-      <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-        r.time_in || "—"
-      )}</td>
-      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-        r.time_out || "—"
-      )}</td>
-      <td class="px-3 py-2">
-        ${
-          photo
-            ? `<a class="text-sky-300 hover:text-sky-200 underline text-[11px]" href="${photo}" target="_blank" rel="noopener">View</a>`
-            : `<span class="text-slate-500 text-[11px]">—</span>`
-        }
-      </td>
+    if (!rows.length) return;
+
+    const wrap = document.createElement("div");
+    wrap.className =
+      "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/30";
+
+      wrap.innerHTML = `
+      <div class="flex items-center justify-between bg-white/10 px-3 py-2">
+        <div class="text-xs font-semibold text-slate-200">${escapeHtml(g.title)}</div>
+        <div class="text-[11px] text-slate-400">${rows.length} people</div>
+      </div>
+    
+      <div class="scrollbar-att max-h-[18.5em] overflow-y-auto rounded-b-2xl bg-slate-950/20">
+        <table class="w-full text-left text-xs">
+          <thead class="sticky top-0 bg-slate-950/60 text-slate-200 backdrop-blur">
+            <tr>
+              <th class="px-3 py-2">Name</th>
+              <th class="px-3 py-2">Time In</th>
+              <th class="px-3 py-2">Time Out</th>
+            </tr>
+          </thead>
+    
+          <tbody class="divide-y divide-white/10">
+            ${rows
+              .map(
+                (r) => `
+                <tr class="text-slate-200">
+                  <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
+                  <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+                    r.time_in || "—"
+                  )}</td>
+                  <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
+                    r.time_out || "—"
+                  )}</td>
+                </tr>
+              `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
     `;
+    
+    holder.appendChild(wrap);
+  };
 
-    ui.logsTbody.appendChild(tr);
+  // Render in schedule order (clock_in order already from controller)
+  for (const s of schedules) {
+    renderGroup(groups.get(String(s.id)));
+  }
+
+  // Render unassigned last (if any)
+  renderGroup(groups.get("unassigned"));
+
+  // If no groups rendered:
+  if (!holder.children.length) {
+    holder.innerHTML = `
+      <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-400">
+        No logs for ${escapeHtml(dateStr)}.
+      </div>
+    `;
   }
 }
+
 
 function setDateToToday() {
   if (!ui.datePicker) return;

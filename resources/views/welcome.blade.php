@@ -17,6 +17,34 @@
             #videoWrap { position: relative; }
             #video { display: block; width: 100%; height: auto; }
             #overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+            .scrollbar-att {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.20) transparent;
+            }
+
+            /* Chrome/Edge/Safari */
+            .scrollbar-att::-webkit-scrollbar {
+            width: 10px;
+            }
+
+            .scrollbar-att::-webkit-scrollbar-track {
+            background: transparent;
+            }
+
+            .scrollbar-att::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.16);
+            border-radius: 9999px;
+            border: 2px solid rgba(0, 0, 0, 0.15);
+            }
+
+            .scrollbar-att::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.26);
+            }
+
+            .scrollbar-att::-webkit-scrollbar-thumb:active {
+            background: rgba(255, 255, 255, 0.34);
+            }
         </style>
     </head>
 
@@ -64,129 +92,8 @@
                                     <span id="nowLabel">—</span>
                                 </div>
                             </div>
-                            <div class="mt-2 overflow-hidden rounded-2xl border border-white/10">
-                                <table class="w-full text-left text-xs">
-                                    <thead class="bg-white/10 text-slate-200">
-                                        <tr>
-                                            <th class="px-3 py-2">Name</th>
-                                            <th class="px-3 py-2">Time In</th>
-                                            <th class="px-3 py-2">Time Out</th>
-                                            <th class="px-3 py-2">Photo</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="logsTbody" class="divide-y divide-white/10 bg-slate-950/40"></tbody>
-                                </table>
-                            </div>
-
-                        </div>
-                        <div id="adminPanel" class="hidden mt-4">
-                            <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                                <div>
-                                    <div class="text-sm font-semibold">Enroll person</div>
-                                    <div class="text-xs text-slate-300">Add a face profile locally (name + face descriptor).</div>
-                                </div>
-                                <div class="mt-3 grid gap-2">
-                                    <label class="text-xs text-slate-300">Full name</label>
-        
-                                    <input id="enrollName" type="text" placeholder="e.g., Juan Dela Cruz"
-                                        class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
-        
-                                    <input id="enrollContact" type="tel" placeholder="Contact Number"
-                                        class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
-        
-                                    <input id="enrollPassword" type="password" placeholder="Password"
-                                        class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
-
-                                    <label class="text-xs text-slate-300">Role</label>
-                                    <select
-                                        id="enrollRole"
-                                        class="w-full rounded-xl bg-slate-900 text-slate-100 px-3 py-2 text-sm
-                                                outline-none ring-1 ring-white/10
-                                                focus:ring-2 focus:ring-emerald-400/60
-                                                border border-white/10"
-                                        >
-                                        <option value="" selected disabled class="bg-slate-900 text-slate-400">
-                                            Select Role
-                                        </option>
-
-                                        @foreach ($roles as $role)
-                                            <option value="{{ $role->id }}" class="bg-slate-900 text-slate-100">
-                                            {{ $role->title }}
-                                            </option>
-                                        @endforeach
-                                    </select>
-
-                                    <label class="text-xs text-slate-300">Schedule</label>
-                                    <select
-                                        id="enrollSchedule"
-                                        class="w-full rounded-xl bg-slate-900 text-slate-100 px-3 py-2 text-sm
-                                                outline-none ring-1 ring-white/10
-                                                focus:ring-2 focus:ring-emerald-400/60
-                                                border border-white/10"
-                                    >
-                                        <option value="" selected disabled class="bg-slate-900 text-slate-400">
-                                            Select Schedule
-                                        </option>
-
-                                        @foreach ($schedules as $s)
-                                            <option value="{{ $s->id }}" class="bg-slate-900 text-slate-100">
-                                                {{ $s->description }}
-                                            </option>
-                                        @endforeach
-                                    </select>
-
-                                    <div class="flex flex-wrap items-center gap-2 pt-1">
-                                        <button id="btnEnroll" type="button" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
-                                            Capture & Save
-                                        </button>
-        
-                                        <button id="btnExportProfiles" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">
-                                            E   
-                                        </button>
-        
-                                        <label class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 cursor-pointer">
-                                            Import
-                                            <input id="importProfiles" type="file" accept="application/json" class="hidden" />
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class=" mt-4 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
-                                <div class="text-xs text-slate-300">Threshold (lower = stricter) — Admin only</div>
-    
-                                <div class="mt-2 flex items-center gap-3">
-                                    <input id="threshold" type="range" min="0.35" max="0.75" step="0.01" value="0.55" class="w-full">
-                                    <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.55</div>
-                                </div>
-    
-                                <div class="mt-1 text-[11px] text-slate-400">Tip: 0.50–0.60 is a common starting range.</div>
-                            </div>
-                            <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div>
-                                        <div class="text-sm font-semibold">System message</div>
-                                        <div class="text-xs text-slate-300">
-                                            Local demo only. Photos are saved per log (can hit browser storage limits).
-                                        </div>
-                                    </div>
-    
-                                    <div class="flex items-center gap-2">
-                                        <button id="btnChangePw" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">Set/Change password</button>
-                                        <button id="btnClearAll" type="button" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">Reset local data</button>
-                                    </div>
-                                </div>
-    
-                                <pre
-                                    id="status"
-                                    class="mt-3 whitespace-pre-wrap break-words text-xs text-slate-200/90
-                                        max-h-[18.5em] overflow-y-auto pr-2 rounded-xl bg-black/10
-                                        ring-1 ring-white/10"
-                                ></pre>
-                            </div>
-                            <div class="mt-3 flex flex-wrap items-center gap-2">
-                                <button id="btnDownloadDay" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download CSV (selected day)</button>
-                                <button id="btnDownloadDayJson" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download JSON + Photos</button>
-                                <button id="btnClearDay" type="button" class="rounded-xl bg-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/30">Clear selected day</button>
+                            <div class="mt-2 space-y-3" id="scheduleTables">
+                                <!-- JS will render one table per schedule here -->
                             </div>
                         </div>
                         <div class="mt-4 flex justify-end">
@@ -240,6 +147,116 @@
                 </section>
                 <section>
                     <div id="toastList" class="space-y-3"></div>
+                    <div id="adminPanel" class="rounded-3xl border border-white/10 bg-white/5 p-4 shadow">
+                        <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
+                            <div>
+                                <div class="text-sm font-semibold">Enroll person</div>
+                                <div class="text-xs text-slate-300">Add a face profile locally (name + face descriptor).</div>
+                            </div>
+                            <div class="mt-3 grid gap-2">
+                                <label class="text-xs text-slate-300">Full name</label>
+
+                                <input id="enrollName" type="text" placeholder="e.g., Juan Dela Cruz"
+                                    class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+
+                                <input id="enrollContact" type="tel" placeholder="Contact Number"
+                                    class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+
+                                <input id="enrollPassword" type="password" placeholder="Password"
+                                    class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+
+                                <label class="text-xs text-slate-300">Role</label>
+                                <select
+                                    id="enrollRole"
+                                    class="w-full rounded-xl bg-slate-900 text-slate-100 px-3 py-2 text-sm
+                                            outline-none ring-1 ring-white/10
+                                            focus:ring-2 focus:ring-emerald-400/60
+                                            border border-white/10"
+                                    >
+                                    <option value="" selected disabled class="bg-slate-900 text-slate-400">
+                                        Select Role
+                                    </option>
+
+                                    @foreach ($roles as $role)
+                                        <option value="{{ $role->id }}" class="bg-slate-900 text-slate-100">
+                                        {{ $role->title }}
+                                        </option>
+                                    @endforeach
+                                </select>
+
+                                <label class="text-xs text-slate-300">Schedule</label>
+                                <select
+                                    id="enrollSchedule"
+                                    class="w-full rounded-xl bg-slate-900 text-slate-100 px-3 py-2 text-sm
+                                            outline-none ring-1 ring-white/10
+                                            focus:ring-2 focus:ring-emerald-400/60
+                                            border border-white/10"
+                                >
+                                    <option value="" selected disabled class="bg-slate-900 text-slate-400">
+                                        Select Schedule
+                                    </option>
+
+                                    @foreach ($schedules as $s)
+                                        <option value="{{ $s->id }}" class="bg-slate-900 text-slate-100">
+                                            {{ $s->description }}
+                                        </option>
+                                    @endforeach
+                                </select>
+
+                                <div class="flex flex-wrap items-center gap-2 pt-1">
+                                    <button id="btnEnroll" type="button" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
+                                        Capture & Save
+                                    </button>
+
+                                    <button id="btnExportProfiles" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">
+                                        E   
+                                    </button>
+
+                                    <label class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15 cursor-pointer">
+                                        Import
+                                        <input id="importProfiles" type="file" accept="application/json" class="hidden" />
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class=" mt-4 rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+                            <div class="text-xs text-slate-300">Threshold (lower = stricter) — Admin only</div>
+
+                            <div class="mt-2 flex items-center gap-3">
+                                <input id="threshold" type="range" min="0.35" max="0.75" step="0.01" value="0.55" class="w-full">
+                                <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.55</div>
+                            </div>
+
+                            <div class="mt-1 text-[11px] text-slate-400">Tip: 0.50–0.60 is a common starting range.</div>
+                        </div>
+                        <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-3">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <div class="text-sm font-semibold">System message</div>
+                                    <div class="text-xs text-slate-300">
+                                        Local demo only. Photos are saved per log (can hit browser storage limits).
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center gap-2">
+                                    <button id="btnChangePw" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">Set/Change password</button>
+                                    <button id="btnClearAll" type="button" class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">Reset local data</button>
+                                </div>
+                            </div>
+
+                            <pre
+                                id="status"
+                                class="scrollbar-att mt-3 whitespace-pre-wrap break-words text-xs text-slate-200/90
+                                    max-h-[18.5em] overflow-y-auto pr-2 rounded-xl bg-black/10
+                                    ring-1 ring-white/10"
+                            ></pre>
+                        </div>
+                        <div class="mt-3 flex flex-wrap items-center gap-2">
+                            <button id="btnDownloadDay" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download CSV (selected day)</button>
+                            <button id="btnDownloadDayJson" type="button" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/15">Download JSON + Photos</button>
+                            <button id="btnClearDay" type="button" class="rounded-xl bg-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/30">Clear selected day</button>
+                        </div>
+                    </div>
                 </section>
             </div>
 
@@ -273,5 +290,8 @@
             <footer class="mt-8 text-center text-[11px] text-slate-500">
             </footer>
         </main>
+        <script>
+            window.__SCHEDULES__ = @json($schedules);
+        </script>
     </body>
 </html>
