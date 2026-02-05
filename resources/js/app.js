@@ -43,6 +43,7 @@ const ui = {
   overlay: el("overlay"),
   status: el("status"),
   enrollRole: el("enrollRole"),
+  enrollSchedule: el("enrollSchedule"),
 
   btnStart: el("btnStart"),
   btnStop: el("btnStop"),
@@ -1193,6 +1194,7 @@ async function enroll() {
   const contact_number = (ui.enrollContact?.value || "").trim();
   const password = (ui.enrollPassword?.value || "").trim();
   const role_id = ui.enrollRole?.value || "";
+  const schedule_id = ui.enrollSchedule?.value || "";
 
   if (!name) {
     appendStatus("Enroll: Please enter a name.");
@@ -1206,6 +1208,14 @@ async function enroll() {
     appendStatus("Enroll: Password must be at least 8 characters.");
     return;
   }
+  if (!role_id) {
+    appendStatus("Enroll: Please select a role.");
+    return;
+  }
+  if (!schedule_id) {
+    appendStatus("Enroll: Please select a schedule.");
+    return;
+  }
 
   if (!stream) {
     appendStatus("Enroll: Start the camera first.");
@@ -1215,19 +1225,13 @@ async function enroll() {
     appendStatus("Enroll: Models not ready yet.");
     return;
   }
-  if (!role_id) {
-    appendStatus("Enroll: Please select a role.");
-    return;
-  }
 
   appendStatus("Enroll: Capturing face…");
 
   const scan = await getSingleDescriptorStrict();
   if (!scan?.descriptor) {
     if (scan?.reason === "multiple") {
-      appendStatus(
-        `Enroll: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
-      );
+      appendStatus(`Enroll: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`);
     } else {
       appendStatus("Enroll: Face not detected.");
     }
@@ -1236,7 +1240,6 @@ async function enroll() {
 
   const threshold = Number(ui.threshold?.value ?? 0.55);
 
-  // Optional: block enrolling if already matches someone (avoid duplicates)
   const matchResp = await safeFetchJson("/api/face/match", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1248,9 +1251,7 @@ async function enroll() {
 
   if (matchResp.ok && matchResp.data?.matched) {
     appendStatus(
-      `Enroll blocked: Face already registered as ${
-        matchResp.data?.user?.name || "someone"
-      }.`
+      `Enroll blocked: Face already registered as ${matchResp.data?.user?.name || "someone"}.`
     );
     return;
   }
@@ -1262,7 +1263,8 @@ async function enroll() {
       name,
       contact_number,
       password,
-      role_id: Number(ui.enrollRole.value),
+      role_id: Number(role_id),
+      schedule_id: Number(schedule_id),
       descriptor: Array.from(scan.descriptor),
       label: "Enrollment",
     }),
@@ -1271,20 +1273,22 @@ async function enroll() {
   if (!r.ok) {
     const msg =
       r.data?.message ||
-      (r.data?.errors
-        ? Object.values(r.data.errors).flat().join(" ")
-        : `HTTP ${r.status}`);
+      (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
     appendStatus(`Enroll failed: ${msg}`);
     return;
   }
 
   appendStatus(`Enroll success ✅ user_id=${r.data?.user?.id ?? "?"}`);
+
   if (ui.enrollName) ui.enrollName.value = "";
   if (ui.enrollContact) ui.enrollContact.value = "";
   if (ui.enrollPassword) ui.enrollPassword.value = "";
-  if (ui.enrollRole) ui.enrollRole.value = ""; // ✅ back to "Select Role"
+  if (ui.enrollRole) ui.enrollRole.value = "";
+  if (ui.enrollSchedule) ui.enrollSchedule.value = ""; // ✅ reset schedule too
+
   renderProfiles();
 }
+
 
 async function attendance(type) {
   const dateStr = ui.datePicker?.value || isoDateLocal();

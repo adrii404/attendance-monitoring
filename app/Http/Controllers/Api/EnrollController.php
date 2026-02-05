@@ -22,6 +22,13 @@ class EnrollController extends Controller
                 'integer',
                 Rule::exists('roles', 'id')->whereNull('deleted_at'), // ignore soft-deleted roles
             ],
+            
+            'schedule_id' => [
+                'required',
+                'integer',
+                Rule::exists('schedules', 'id')->whereNull('deleted_at'),
+            ],
+
     
             'contact_number' => [
                 'required',
@@ -49,7 +56,8 @@ class EnrollController extends Controller
         [$user, $profile] = DB::transaction(function () use ($data, $descriptor) {
             $user = User::create([
                 'name' => $data['name'],
-                'role_id' => $data['role_id'], // ✅ save role_id here
+                'role_id' => $data['role_id'],
+                'schedule_id' => $data['schedule_id'], // ✅ add this
                 'contact_number' => $data['contact_number'],
                 'email' => $data['email'] ?? null,
                 'password' => Hash::make($data['password']),
