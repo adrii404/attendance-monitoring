@@ -9,7 +9,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
 
-
 class AttendanceController extends Controller
 {
     public function clock(Request $request)
@@ -33,20 +32,9 @@ class AttendanceController extends Controller
 
         $userId = $best['user_id'];
 
-        // Basic sequence rule
-        $last = AttendanceLog::where('user_id', $userId)
-            ->orderByDesc('occurred_at')
-            ->first();
-
-        if ($data['type'] === 'in') {
-            if ($last && $last->type === 'in') {
-                return response()->json(['success' => false, 'message' => 'Already clocked in'], 409);
-            }
-        } else { // out
-            if (!$last || $last->type !== 'in') {
-                return response()->json(['success' => false, 'message' => 'No active clock-in found'], 409);
-            }
-        }
+        // ✅ REMOVED ALL sequence rules:
+        // - allow multiple IN
+        // - allow OUT even without prior IN
 
         $photoPath = null;
         if (!empty($data['photo_data_url'])) {
