@@ -42,6 +42,7 @@ const ui = {
   video: el("video"),
   overlay: el("overlay"),
   status: el("status"),
+  enrollRole: el("enrollRole"),
 
   btnStart: el("btnStart"),
   btnStop: el("btnStop"),
@@ -1322,6 +1323,8 @@ async function enroll() {
   const name = (ui.enrollName?.value || "").trim();
   const contact_number = (ui.enrollContact?.value || "").trim();
   const password = (ui.enrollPassword?.value || "").trim();
+  const role_id = ui.enrollRole?.value || "";
+
 
   if (!name) {
     appendStatus("Enroll: Please enter a name.");
@@ -1344,6 +1347,11 @@ async function enroll() {
     appendStatus("Enroll: Models not ready yet.");
     return;
   }
+  if (!role_id) {
+    appendStatus("Enroll: Please select a role.");
+    return;
+  }
+
 
   appendStatus("Enroll: Capturing face…");
 
@@ -1387,6 +1395,7 @@ async function enroll() {
       name,
       contact_number,
       password,
+      role_id: Number(ui.enrollRole.value),
       descriptor: Array.from(scan.descriptor),
       label: "Enrollment",
     }),
@@ -1406,6 +1415,7 @@ async function enroll() {
   if (ui.enrollName) ui.enrollName.value = "";
   if (ui.enrollContact) ui.enrollContact.value = "";
   if (ui.enrollPassword) ui.enrollPassword.value = "";
+  if (ui.enrollRole) ui.enrollRole.value = "";
   renderProfiles();
 }
 

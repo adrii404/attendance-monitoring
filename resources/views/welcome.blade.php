@@ -96,7 +96,26 @@
         
                                     <input id="enrollPassword" type="password" placeholder="Password"
                                         class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
-        
+
+                                    <label class="text-xs text-slate-300">Role</label>
+                                    <select
+                                        id="enrollRole"
+                                        class="w-full rounded-xl bg-slate-900 text-slate-100 px-3 py-2 text-sm
+                                                outline-none ring-1 ring-white/10
+                                                focus:ring-2 focus:ring-emerald-400/60
+                                                border border-white/10"
+                                        >
+                                        <option value="" selected disabled class="bg-slate-900 text-slate-400">
+                                            Select Role
+                                        </option>
+
+                                        @foreach ($roles as $role)
+                                            <option value="{{ $role->id }}" class="bg-slate-900 text-slate-100">
+                                            {{ $role->title }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+
                                     <div class="flex flex-wrap items-center gap-2 pt-1">
                                         <button id="btnEnroll" type="button" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
                                             Capture & Save
