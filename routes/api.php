@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\EnrollController;
 use App\Http\Controllers\Api\FaceController;
 use App\Http\Controllers\Api\AttendanceController;
+use App\Http\Controllers\Api\OfficialBusinessController;
+
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -25,3 +27,5 @@ Route::post('/attendance/clock', [AttendanceController::class, 'clock']);
 
 Route::get('/face/profiles', [FaceController::class, 'profiles']);   // optional: show enrolled list
 Route::get('/attendance/logs', [AttendanceController::class, 'logs']); // optional: load logs by date
+
+Route::post('/official-businesses', [OfficialBusinessController::class, 'store']);

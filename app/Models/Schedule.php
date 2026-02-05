@@ -34,4 +34,10 @@ class Schedule extends Model
     {
         return $this->hasMany(AttendanceLog::class);
     }
+
+    public function officialBusinesses()
+    {
+        return $this->hasMany(OfficialBusiness::class);
+    }
+
 }

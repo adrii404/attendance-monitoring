@@ -17,6 +17,10 @@ import "./bootstrap";
  * ✅ NEW RULE:
  * - CHECK-IN must be clicked via button (manual)
  * - CHECK-OUT must be clicked via button (manual)
+ *
+ * ✅ NEW:
+ * - "Request OB" modal (injects modal DOM if not present)
+ * - Uses single DB column: requested_at (YYYY-MM-DD HH:mm:ss)
  */
 
 const MODELS_URL =
@@ -71,7 +75,6 @@ const ui = {
   btnDownloadDayJson: el("btnDownloadDayJson"),
   btnClearDay: el("btnClearDay"),
 
-  logsTbody: el("logsTbody"),
   logsCount: el("logsCount"),
 
   btnClearAll: el("btnClearAll"),
@@ -99,36 +102,32 @@ const ui = {
   pwModalOk: el("pwModalOk"),
 
   toastList: el("toastList"),
+
+  // ✅ Request OB button (set this ID in blade)
+  btnRequestOb: el("btnRequestOb"),
 };
 
 // ---------------- Lite/Performance knobs ----------------
 const PERF = {
-  // Live scanning: lower = faster/less accurate, higher = slower/more accurate
   LIVE_INPUT_SIZE: 160,
   LIVE_SCORE_THRESHOLD: 0.5,
   LIVE_SCAN_INTERVAL_MS: 650,
 
-  // Action scans (button clicks): more accurate than live, still not too heavy
   ACTION_INPUT_SIZE: 224,
   ACTION_SCORE_THRESHOLD: 0.5,
 
-  // Major CPU saver: drawing landmarks is expensive
   DRAW_LANDMARKS: false,
 
-  // Lower camera decode cost
   CAMERA_IDEAL_WIDTH: 640,
   CAMERA_IDEAL_HEIGHT: 480,
 
-  // Stored photos for logs (UI + backend)
   PHOTO_LOG_MAX_WIDTH: 420,
   PHOTO_LOG_QUALITY: 0.65,
 
-  // Pause scanning if tab hidden (saves CPU)
   PAUSE_WHEN_HIDDEN: true,
 };
 
 // ---------------- Voice (Text-to-Speech) ----------------
-// ✅ IMPORTANT: Some browsers require a user gesture first, so we "unlock" speech
 let voiceEnabled = true;
 let speechUnlocked = false;
 
@@ -148,7 +147,6 @@ function speak(text) {
   if (!voiceEnabled) return;
   if (!("speechSynthesis" in window)) return;
 
-  // avoid queued/overlapping speech
   window.speechSynthesis.cancel();
 
   const u = new SpeechSynthesisUtterance(text);
@@ -183,8 +181,6 @@ let liveSingle = {
 // ✅ Green flash after successful clock-in/out
 let scanSuccessFlashUntil = 0;
 
-let toastTimer = null;
-
 function showRightToast({ name, date, time, action, photoDataUrl }) {
   if (!ui.toastList) return;
 
@@ -218,16 +214,13 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
     </div>
   `;
 
-  // ✅ newest on top
   ui.toastList.prepend(wrap);
 
-  // fade in (next tick)
   requestAnimationFrame(() => {
     wrap.classList.remove("opacity-0");
     wrap.classList.add("opacity-100");
   });
 
-  // fade out after 3s, then remove from DOM
   setTimeout(() => {
     wrap.classList.remove("opacity-100");
     wrap.classList.add("opacity-0");
@@ -238,7 +231,6 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
   }, 3000);
 }
 
-// Throttle server matching so live scanning doesn't spam your API
 const SERVER_MATCH_MIN_INTERVAL_MS = 800;
 
 async function safeFetchJson(url, options = {}) {
@@ -267,10 +259,8 @@ async function safeFetchJson(url, options = {}) {
 async function serverMatchDescriptor(descriptor, threshold) {
   const nowMs = Date.now();
 
-  // If a request is already in-flight, reuse the last result
   if (serverMatchInFlight) return lastServerMatchResult;
 
-  // Throttle calls
   if (nowMs - lastServerMatchAt < SERVER_MATCH_MIN_INTERVAL_MS)
     return lastServerMatchResult;
 
@@ -304,7 +294,7 @@ async function serverMatchDescriptor(descriptor, threshold) {
 }
 
 let stream = null;
-let facingMode = "user"; // or "environment"
+let facingMode = "user";
 let modelsReady = false;
 
 let scanInProgress = false;
@@ -313,7 +303,6 @@ let liveTimer = null;
 let adminUnlockedThreshold = false;
 let lastThresholdValue = null;
 
-// ✅ prevent overlapping attendance calls
 let attendanceInProgress = false;
 
 // ---------------- Utilities ----------------
@@ -353,7 +342,6 @@ function setModelPill(state, label) {
 
   ui.modelStatusText.textContent = label || "";
 
-  // state: "loading" | "ready" | "error"
   ui.statusDot.className =
     "inline-block h-2 w-2 rounded-full " +
     (state === "ready"
@@ -391,7 +379,6 @@ function safeSetLocalStorage(key, value) {
   }
 }
 
-// ✅ today-only helper
 function isSelectedDateToday() {
   const selected = ui.datePicker?.value || isoDateLocal();
   return selected === isoDateLocal();
@@ -418,14 +405,13 @@ function updateCheckButtonsState() {
     : `${baseOff} bg-white/10`;
 }
 
-// ---------------- Masked password modal (replaces prompt) ----------------
+// ---------------- Masked password modal ----------------
 function promptPasswordModal({
   title = "Admin password",
   desc = "Enter password",
   placeholder = "Password",
 } = {}) {
   return new Promise((resolve) => {
-    // Fallback if modal not in DOM (won't be masked)
     if (
       !ui.pwModal ||
       !ui.pwModalInput ||
@@ -447,7 +433,6 @@ function promptPasswordModal({
     ui.pwModal.classList.remove("hidden");
     ui.pwModal.classList.add("flex");
 
-    // Focus next tick
     setTimeout(() => ui.pwModalInput.focus(), 0);
 
     const cleanup = () => {
@@ -559,7 +544,7 @@ async function requireAdmin(actionLabel = "this action") {
   return true;
 }
 
-// ---------------- Admin session toggle (show/hide panel) ----------------
+// ---------------- Admin session toggle ----------------
 function isAdminLoggedIn() {
   return localStorage.getItem(STORAGE_ADMIN_SESSION) === "1";
 }
@@ -575,10 +560,8 @@ function applyAdminUiState() {
   if (ui.btnAdminToggle)
     ui.btnAdminToggle.textContent = on ? "Logout" : "Admin Access";
 
-  // threshold can be interacted with immediately while admin is logged in
   adminUnlockedThreshold = on;
 
-  // When logging out, snap slider back to last known value (optional safety)
   if (!on && lastThresholdValue !== null) {
     setThresholdValue(lastThresholdValue);
   }
@@ -631,51 +614,6 @@ function addLog(dateStr, record) {
   saveLogs(logs);
 }
 
-// ✅ one row per person per day summary
-function buildDaySummary(dateStr) {
-  const logs = getLogsForDate(dateStr);
-  const map = new Map();
-
-  for (const r of logs) {
-    if (!r || !r.name) continue;
-
-    if (!map.has(r.name)) {
-      map.set(r.name, {
-        name: r.name,
-        time_in: null,
-        time_out: null,
-        photo_in: null,
-        photo_out: null,
-      });
-    }
-
-    const item = map.get(r.name);
-
-    if (r.type === "check-in") {
-      if (!item.time_in || (r.time && r.time < item.time_in)) {
-        item.time_in = r.time || item.time_in;
-        item.photo_in = r.photo_data_url || item.photo_in;
-      }
-    } else if (r.type === "check-out") {
-      if (!item.time_out || (r.time && r.time > item.time_out)) {
-        item.time_out = r.time || item.time_out;
-        item.photo_out = r.photo_data_url || item.photo_out;
-      }
-    }
-  }
-
-  const rows = Array.from(map.values());
-  rows.sort((a, b) => {
-    const ai = a.time_in || "";
-    const bi = b.time_in || "";
-    if (ai < bi) return -1;
-    if (ai > bi) return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  return rows;
-}
-
 // ---------------- Face API setup ----------------
 async function loadModels() {
   setModelPill("loading", "Loading models…");
@@ -697,11 +635,9 @@ function resizeOverlayToVideo() {
   const w = Math.max(1, Math.round(rect.width));
   const h = Math.max(1, Math.round(rect.height));
 
-  // Canvas internal resolution matches displayed pixels
   ui.overlay.width = w;
   ui.overlay.height = h;
 
-  // Make sure canvas element visually matches too
   ui.overlay.style.width = w + "px";
   ui.overlay.style.height = h + "px";
 }
@@ -722,7 +658,7 @@ function drawResultsWithLabels(results, labels, opts = {}) {
   faceapi.matchDimensions(ui.overlay, displaySize);
   const resized = faceapi.resizeResults(results, displaySize);
 
-  const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)"; // default blue
+  const stroke = opts.strokeStyle || "rgba(56, 189, 248, 0.95)";
 
   for (let i = 0; i < resized.length; i++) {
     const box = resized[i].detection.box;
@@ -795,7 +731,7 @@ function capturePhotoDataUrlScaled(maxW = 420, quality = 0.65) {
   }
 }
 
-// ✅ Live scan (throttled by setInterval) to show name while camera runs
+// ✅ Live scan (throttled by setInterval)
 async function runLiveScanOnce() {
   if (!stream || !modelsReady || !ui.video) return;
   if (scanInProgress) return;
@@ -851,7 +787,6 @@ async function runLiveScanOnce() {
       return;
     }
 
-    // ✅ DB-driven match via Laravel (face_profiles table)
     const resp = await serverMatchDescriptor(d, threshold);
 
     if (resp.matched && resp.user?.name) {
@@ -860,7 +795,6 @@ async function runLiveScanOnce() {
       const isFlashGreen = nowMs < scanSuccessFlashUntil;
       const strokeStyle = isFlashGreen ? GREEN : BLUE;
 
-      // ✅ NAME ONLY
       const labelText = `${resp.user.name}`;
       labels[0] = labelText;
 
@@ -888,7 +822,6 @@ async function runLiveScanOnce() {
   }
 }
 
-// ---------------- Live loop control (CPU-friendly) ----------------
 function startLiveLoop() {
   if (liveTimer) return;
   liveTimer = setInterval(() => {
@@ -906,7 +839,6 @@ async function startCamera() {
   if (stream) return;
   if (!ui.video) return;
 
-  // starting camera is a user gesture -> try unlock speech here too
   unlockSpeech();
 
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -943,9 +875,7 @@ function stopCamera() {
 
   scanSuccessFlashUntil = 0;
 
-  // stop live loop
   stopLiveLoop();
-
   clearOverlay();
 
   const tracks = stream.getTracks();
@@ -972,12 +902,10 @@ async function flipCamera() {
 
 // ---------------- UI rendering ----------------
 async function renderProfiles() {
-  // If you haven't mounted profilesList/enrolledCount in the UI yet, just skip safely
   if (!ui.profilesList || !ui.enrolledCount) return;
 
   ui.profilesList.innerHTML = "";
 
-  // Try DB-backed list first (optional endpoint)
   const server = await safeFetchJson("/api/face/profiles", { method: "GET" });
 
   if (server.ok && Array.isArray(server.data?.profiles)) {
@@ -1014,7 +942,6 @@ async function renderProfiles() {
     return;
   }
 
-  // Fallback (legacy localStorage profiles)
   const profiles = getProfiles();
   ui.enrolledCount.textContent = String(profiles.length);
 
@@ -1073,16 +1000,14 @@ async function renderLogs() {
     { method: "GET" }
   );
 
-  // schedules from blade
   const schedules = Array.isArray(window.__SCHEDULES__) ? window.__SCHEDULES__ : [];
 
-  // Build base groups (one per schedule + Unassigned)
   const groups = new Map();
   for (const s of schedules) {
     groups.set(String(s.id), {
       id: s.id,
       title: s.description || `Schedule #${s.id}`,
-      rows: new Map(), // name -> { name, time_in, time_out }
+      rows: new Map(),
     });
   }
   groups.set("unassigned", {
@@ -1105,7 +1030,6 @@ async function renderLogs() {
 
   const logs = server.data.logs;
 
-  // Convert logs -> per schedule -> per person summary
   for (const r of logs) {
     const name = r.name || `User ${r.user_id}`;
     const sid = r.schedule_id ? String(r.schedule_id) : "unassigned";
@@ -1120,37 +1044,32 @@ async function renderLogs() {
     const timeStr = t ? timeLocal(t) : "—";
 
     if (r.type === "in") {
-      // earliest in
       if (!item.time_in || timeStr < item.time_in) item.time_in = timeStr;
     } else if (r.type === "out") {
-      // latest out
       if (!item.time_out || timeStr > item.time_out) item.time_out = timeStr;
     }
   }
 
-  // Count unique people across all groups
   let totalPeople = 0;
   for (const g of groups.values()) totalPeople += g.rows.size;
   ui.logsCount.textContent = String(totalPeople);
 
-  // Render: tables per schedule (only show if it has people)
   const renderGroup = (g) => {
     const rows = Array.from(g.rows.values()).sort((a, b) =>
       a.name.localeCompare(b.name)
     );
-
     if (!rows.length) return;
 
     const wrap = document.createElement("div");
     wrap.className =
       "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/30";
 
-      wrap.innerHTML = `
+    wrap.innerHTML = `
       <div class="flex items-center justify-between bg-white/10 px-3 py-2">
         <div class="text-xs font-semibold text-slate-200">${escapeHtml(g.title)}</div>
         <div class="text-[11px] text-slate-400">${rows.length} people</div>
       </div>
-    
+
       <div class="scrollbar-att max-h-[18.5em] overflow-y-auto rounded-b-2xl bg-slate-950/20">
         <table class="w-full text-left text-xs">
           <thead class="sticky top-0 bg-slate-950/60 text-slate-200 backdrop-blur">
@@ -1160,7 +1079,7 @@ async function renderLogs() {
               <th class="px-3 py-2">Time Out</th>
             </tr>
           </thead>
-    
+
           <tbody class="divide-y divide-white/10">
             ${rows
               .map(
@@ -1181,28 +1100,24 @@ async function renderLogs() {
         </table>
       </div>
     `;
-    
+
     holder.appendChild(wrap);
   };
 
-  // Render in schedule order (clock_in order already from controller)
   for (const s of schedules) {
     renderGroup(groups.get(String(s.id)));
   }
 
-  // Render unassigned last (if any)
   renderGroup(groups.get("unassigned"));
 
-  // If no groups rendered:
   if (!holder.children.length) {
     holder.innerHTML = `
-      <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-400">
+      <div class="scrollbar-att max-h-[18.5em] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-400">
         No logs for ${escapeHtml(dateStr)}.
       </div>
     `;
   }
 }
-
 
 function setDateToToday() {
   if (!ui.datePicker) return;
@@ -1219,35 +1134,15 @@ async function enroll() {
   const role_id = ui.enrollRole?.value || "";
   const schedule_id = ui.enrollSchedule?.value || "";
 
-  if (!name) {
-    appendStatus("Enroll: Please enter a name.");
-    return;
-  }
-  if (!contact_number) {
-    appendStatus("Enroll: Please enter a contact number.");
-    return;
-  }
-  if (!password || password.length < 8) {
-    appendStatus("Enroll: Password must be at least 8 characters.");
-    return;
-  }
-  if (!role_id) {
-    appendStatus("Enroll: Please select a role.");
-    return;
-  }
-  if (!schedule_id) {
-    appendStatus("Enroll: Please select a schedule.");
-    return;
-  }
+  if (!name) return appendStatus("Enroll: Please enter a name.");
+  if (!contact_number) return appendStatus("Enroll: Please enter a contact number.");
+  if (!password || password.length < 8)
+    return appendStatus("Enroll: Password must be at least 8 characters.");
+  if (!role_id) return appendStatus("Enroll: Please select a role.");
+  if (!schedule_id) return appendStatus("Enroll: Please select a schedule.");
 
-  if (!stream) {
-    appendStatus("Enroll: Start the camera first.");
-    return;
-  }
-  if (!modelsReady) {
-    appendStatus("Enroll: Models not ready yet.");
-    return;
-  }
+  if (!stream) return appendStatus("Enroll: Start the camera first.");
+  if (!modelsReady) return appendStatus("Enroll: Models not ready yet.");
 
   appendStatus("Enroll: Capturing face…");
 
@@ -1307,16 +1202,14 @@ async function enroll() {
   if (ui.enrollContact) ui.enrollContact.value = "";
   if (ui.enrollPassword) ui.enrollPassword.value = "";
   if (ui.enrollRole) ui.enrollRole.value = "";
-  if (ui.enrollSchedule) ui.enrollSchedule.value = ""; // ✅ reset schedule too
+  if (ui.enrollSchedule) ui.enrollSchedule.value = "";
 
   renderProfiles();
 }
 
-
 async function attendance(type) {
   const dateStr = ui.datePicker?.value || isoDateLocal();
 
-  // Don't spam if already running
   if (attendanceInProgress) return;
   attendanceInProgress = true;
 
@@ -1326,25 +1219,16 @@ async function attendance(type) {
       return;
     }
 
-    if (!stream) {
-      appendStatus(`${type}: Start the camera first.`);
-      return;
-    }
-
-    if (!modelsReady) {
-      appendStatus(`${type}: Models not ready yet.`);
-      return;
-    }
+    if (!stream) return appendStatus(`${type}: Start the camera first.`);
+    if (!modelsReady) return appendStatus(`${type}: Models not ready yet.`);
 
     const threshold = Number(ui.threshold?.value ?? 0.55);
 
-    // Enforce today's only
     if (!isSelectedDateToday()) {
       appendStatus("Check In/Out is disabled for past dates.");
       return;
     }
 
-    // Disable buttons while processing
     if (ui.btnCheckIn) ui.btnCheckIn.disabled = true;
     if (ui.btnCheckOut) ui.btnCheckOut.disabled = true;
 
@@ -1353,22 +1237,18 @@ async function attendance(type) {
     const scan = await getSingleDescriptorStrict();
     if (!scan?.descriptor) {
       if (scan?.reason === "multiple") {
-        appendStatus(
-          `${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`
-        );
+        appendStatus(`${type}: Multiple faces detected (${scan.count}). ONLY ONE person allowed.`);
       } else {
         appendStatus(`${type}: Face not detected.`);
       }
       return;
     }
 
-    // Optional: capture a small photo for your logs (UI + backend)
     const photo = capturePhotoDataUrlScaled(
       PERF.PHOTO_LOG_MAX_WIDTH,
       PERF.PHOTO_LOG_QUALITY
     );
 
-    // Map UI type -> backend type (AttendanceController expects "in" / "out")
     const apiType = type === "check-in" ? "in" : "out";
 
     const r = await safeFetchJson("/api/attendance/clock", {
@@ -1386,21 +1266,17 @@ async function attendance(type) {
     if (!r.ok) {
       const msg =
         r.data?.message ||
-        (r.data?.errors
-          ? Object.values(r.data.errors).flat().join(" ")
-          : `HTTP ${r.status}`);
+        (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
       appendStatus(`${type}: ${msg}`);
       return;
     }
 
     const name = r.data?.user?.name || "Unknown";
 
-    // ✅ Green flash after success (optional)
     scanSuccessFlashUntil = Date.now() + 1200;
 
     appendStatus(`${type}: Saved ✅ (${name})`);
 
-    // ✅ Speak the REGISTERED name returned by backend
     const say = type === "check-in" ? "time in" : "time out";
     if (name && name !== "Unknown") speak(`${name} ${say}`);
     else speak("Unknown face. Please scan again.");
@@ -1409,13 +1285,12 @@ async function attendance(type) {
 
     showRightToast({
       name,
-      date: dateStr, // YYYY-MM-DD
-      time: timeLocal(now()), // HH:mm:ss
+      date: dateStr,
+      time: timeLocal(now()),
       action: actionLabel,
-      photoDataUrl: photo || null, // the captured image
+      photoDataUrl: photo || null,
     });
 
-    // ✅ Update UI table immediately (local UI cache only; DB is the source of truth)
     addLog(dateStr, {
       name,
       type,
@@ -1561,6 +1436,227 @@ async function importProfilesFromFile(file) {
   renderProfiles();
 }
 
+// ---------------- Official Business (OB) modal ----------------
+let obModalEls = null;
+
+function ensureObModalInjected() {
+  // If already in Blade (your case)
+  if (document.getElementById("obModal")) {
+    obModalEls = {
+      modal: el("obModal"),
+      user: el("obUser"),
+      schedule: el("obSchedule"),
+      type: el("obType"),
+      date: el("obDate"),
+      time: el("obTime"),
+      notes: el("obNotes"),
+      cancel: el("obCancel"),
+      submit: el("obSubmit"),
+      status: el("obStatus"),
+      x: el("obX"), // optional if you add it
+    };
+
+    // ✅ bind close handlers ONCE
+    if (!obModalEls.modal?.dataset.bound) {
+      const close = () => closeObModal();
+
+      obModalEls.cancel?.addEventListener("click", (e) => {
+        e.preventDefault();
+        close();
+      });
+
+      obModalEls.x?.addEventListener("click", (e) => {
+        e.preventDefault();
+        close();
+      });
+
+      obModalEls.modal?.addEventListener("click", (e) => {
+        if (e.target === obModalEls.modal) close();
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") close();
+      });
+
+      obModalEls.modal.dataset.bound = "1";
+    }
+
+    return obModalEls;
+  }
+
+  // Otherwise inject (fallback)
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `...`; // keep your injected HTML as-is
+  document.body.appendChild(wrap);
+
+  obModalEls = {
+    modal: el("obModal"),
+    user: el("obUser"),
+    schedule: el("obSchedule"),
+    type: el("obType"),
+    date: el("obDate"),
+    time: el("obTime"),
+    notes: el("obNotes"),
+    cancel: el("obCancel"),
+    submit: el("obSubmit"),
+    status: el("obStatus"),
+    x: el("obX"),
+  };
+
+  // close handlers (injected)
+  const close = () => closeObModal();
+  obModalEls.cancel?.addEventListener("click", close);
+  obModalEls.x?.addEventListener("click", close);
+  obModalEls.modal?.addEventListener("click", (e) => {
+    if (e.target === obModalEls.modal) close();
+  });
+
+  return obModalEls;
+}
+
+function openObModal() {
+  const m = ensureObModalInjected();
+  if (!m?.modal) return;
+
+  // defaults
+  m.status?.classList.add("hidden");
+  if (m.status) m.status.textContent = "";
+
+  if (m.date) m.date.value = isoDateLocal();
+  if (m.time) m.time.value = timeLocal().slice(0, 5); // HH:mm
+
+  // load schedules into select
+  const schedules = Array.isArray(window.__SCHEDULES__) ? window.__SCHEDULES__ : [];
+  if (m.schedule) {
+    m.schedule.innerHTML = `<option value="" selected disabled class="bg-slate-900 text-slate-400">Select Schedule</option>`;
+    for (const s of schedules) {
+      const opt = document.createElement("option");
+      opt.value = String(s.id);
+      opt.textContent = s.description || `Schedule #${s.id}`;
+      opt.className = "bg-slate-900 text-slate-100";
+      m.schedule.appendChild(opt);
+    }
+  }
+
+  // load users (from enrolled face profiles endpoint)
+  loadObUsers().catch(() => {});
+
+  m.modal.classList.remove("hidden");
+  m.modal.classList.add("flex");
+}
+
+function closeObModal() {
+  const m = ensureObModalInjected();
+  if (!m?.modal) return;
+  m.modal.classList.add("hidden");
+  m.modal.classList.remove("flex");
+}
+
+function obShowStatus(msg) {
+  const m = ensureObModalInjected();
+  if (!m?.status) return;
+  m.status.textContent = msg || "";
+  m.status.classList.remove("hidden");
+}
+
+async function loadObUsers() {
+  const m = ensureObModalInjected();
+  if (!m?.user) return;
+
+  m.user.innerHTML = `<option value="" selected disabled class="bg-slate-900 text-slate-400">Loading users…</option>`;
+
+  const r = await safeFetchJson("/api/face/profiles", { method: "GET" });
+
+  if (!r.ok || !Array.isArray(r.data?.profiles)) {
+    m.user.innerHTML = `<option value="" selected disabled class="bg-slate-900 text-slate-400">Failed to load users</option>`;
+    obShowStatus("Could not load users. Ensure GET /api/face/profiles returns profiles.");
+    return;
+  }
+
+  // Unique users from profiles
+  const map = new Map();
+  for (const p of r.data.profiles) {
+    const uid = p.user_id ?? p.user?.id ?? null;
+    const name = p.name ?? p.user?.name ?? null;
+    if (!uid) continue;
+    map.set(String(uid), name || `User ${uid}`);
+  }
+
+  const users = Array.from(map.entries()).map(([id, name]) => ({
+    id,
+    name,
+  }));
+  users.sort((a, b) => a.name.localeCompare(b.name));
+
+  m.user.innerHTML = `<option value="" selected disabled class="bg-slate-900 text-slate-400">Select User</option>`;
+  for (const u of users) {
+    const opt = document.createElement("option");
+    opt.value = String(u.id);
+    opt.textContent = u.name;
+    opt.className = "bg-slate-900 text-slate-100";
+    m.user.appendChild(opt);
+  }
+}
+
+async function submitObRequest() {
+  const m = ensureObModalInjected();
+  if (!m?.user || !m?.schedule || !m?.type || !m?.date || !m?.time) return;
+
+  const user_id = Number(m.user.value || 0);
+  const schedule_id = Number(m.schedule.value || 0);
+  const type = String(m.type.value || "in");
+  const date = String(m.date.value || "").trim();
+  const time = String(m.time.value || "").trim();
+  const notes = String(m.notes?.value || "").trim();
+
+  if (!user_id) return obShowStatus("Please select a user.");
+  if (!schedule_id) return obShowStatus("Please select a schedule.");
+  if (!date) return obShowStatus("Please select a date.");
+  if (!time) return obShowStatus("Please select a time.");
+
+  // requested_at: YYYY-MM-DD HH:mm:ss
+  const requested_at = `${date} ${time}:00`;
+
+  // Optional: disable submit to prevent double submit
+  if (m.submit) {
+    m.submit.disabled = true;
+    m.submit.classList.add("opacity-60", "cursor-not-allowed");
+  }
+
+  try {
+    const r = await safeFetchJson("/api/official-businesses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id,
+        schedule_id,
+        type, // 'in'|'out'
+        requested_at,
+        notes: notes || null,
+      }),
+    });
+
+    if (!r.ok) {
+      const msg =
+        r.data?.message ||
+        (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
+      obShowStatus(`Request failed: ${msg}`);
+      appendStatus(`OB: Request failed — ${msg}`);
+      return;
+    }
+
+    obShowStatus("Request submitted ✅ (Pending approval)");
+    appendStatus(`OB: Submitted ✅ user_id=${user_id} schedule_id=${schedule_id} requested_at=${requested_at}`);
+    // close after a short delay
+    setTimeout(() => closeObModal(), 800);
+  } finally {
+    if (m.submit) {
+      m.submit.disabled = false;
+      m.submit.classList.remove("opacity-60", "cursor-not-allowed");
+    }
+  }
+}
+
 // ---------------- Wire up ----------------
 function bindEvents() {
   if (ui.btnStart) ui.btnStart.addEventListener("click", startCamera);
@@ -1583,7 +1679,6 @@ function bindEvents() {
     });
   }
 
-  // ✅ Check-in is MANUAL
   if (ui.btnCheckIn) {
     ui.btnCheckIn.addEventListener("click", () => {
       unlockSpeech();
@@ -1593,7 +1688,6 @@ function bindEvents() {
     });
   }
 
-  // ✅ Check-out is MANUAL
   if (ui.btnCheckOut) {
     ui.btnCheckOut.addEventListener("click", () => {
       unlockSpeech();
@@ -1641,7 +1735,6 @@ function bindEvents() {
     });
   }
 
-  // ✅ Admin Access / Logout toggle
   if (ui.btnAdminToggle) {
     ui.btnAdminToggle.addEventListener("click", async () => {
       if (isAdminLoggedIn()) {
@@ -1664,15 +1757,39 @@ function bindEvents() {
     });
   }
 
+  // ✅ Request OB button
+  if (ui.btnRequestOb) {
+    ui.btnRequestOb.addEventListener("click", () => {
+      openObModal();
+    });
+  } else {
+    // If you forgot the ID, still try to bind by text (fallback)
+    const maybe = Array.from(document.querySelectorAll("button")).find((b) =>
+      /request\s*ob/i.test(b.textContent || "")
+    );
+    if (maybe) {
+      maybe.addEventListener("click", () => openObModal());
+    }
+  }
+
+  // OB submit button handler (exists only after injection)
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    if (t && t.id === "obSubmit") {
+      e.preventDefault();
+      submitObRequest().catch((err) => {
+        obShowStatus(`Request failed: ${err?.message || err}`);
+      });
+    }
+  });
+
   window.addEventListener("resize", () => requestAnimationFrame(resizeOverlayToVideo));
-  ui.video.addEventListener("loadedmetadata", () =>
+  ui.video?.addEventListener("loadedmetadata", () =>
     requestAnimationFrame(resizeOverlayToVideo)
   );
 
-  // Optional: if you switch tabs, pause scanning and resume
   document.addEventListener("visibilitychange", () => {
     if (!PERF.PAUSE_WHEN_HIDDEN) return;
-
     if (!stream) return;
 
     if (document.hidden) {
@@ -1681,7 +1798,7 @@ function bindEvents() {
       runLiveScanOnce();
     }
   });
-
+  
   gateThresholdEvents();
 }
 
@@ -1692,7 +1809,6 @@ function bindEvents() {
 
   if (ui.datePicker) ui.datePicker.value = isoDateLocal();
 
-  // clock
   const tickClock = () => {
     const d = now();
     if (ui.tzLabel) {
@@ -1707,7 +1823,7 @@ function bindEvents() {
   setInterval(tickClock, 1000);
 
   bindEvents();
-  applyAdminUiState(); // ✅ show/hide admin panel + button text on load
+  applyAdminUiState();
   renderProfiles();
   renderLogs();
   updateCheckButtonsState();
