@@ -50,6 +50,8 @@ const ui = {
   enrollSchedule: el("enrollSchedule"),
   pendingObBody: el("pendingObBody"),
   pendingObCount: el("pendingObCount"),
+  activeUsersBody: el("activeUsersBody"),
+  activeUsersCount: el("activeUsersCount"),
 
   btnStart: el("btnStart"),
   btnStop: el("btnStop"),
@@ -294,6 +296,53 @@ async function serverMatchDescriptor(descriptor, threshold) {
     serverMatchInFlight = false;
   }
 }
+
+async function renderActiveUsers() {
+  if (!ui.activeUsersBody || !ui.activeUsersCount) return;
+
+  ui.activeUsersBody.innerHTML = `
+    <tr><td class="px-3 py-3 text-slate-400" colspan="4">Loading…</td></tr>
+  `;
+
+  const r = await safeFetchJson("/api/users/active?limit=200", { method: "GET" });
+
+  if (!r.ok || !Array.isArray(r.data?.items)) {
+    ui.activeUsersCount.textContent = "0";
+    ui.activeUsersBody.innerHTML = `
+      <tr><td class="px-3 py-3 text-slate-400" colspan="4">Failed to load users.</td></tr>
+    `;
+    return;
+  }
+
+  const items = r.data.items;
+  ui.activeUsersCount.textContent = String(items.length);
+
+  if (!items.length) {
+    ui.activeUsersBody.innerHTML = `
+      <tr><td class="px-3 py-3 text-slate-400" colspan="4">No active users.</td></tr>
+    `;
+    return;
+  }
+
+  ui.activeUsersBody.innerHTML = items
+    .map((u) => `
+      <tr class="text-slate-200">
+        <td class="px-3 py-2 font-semibold">${escapeHtml(u.name || "—")}</td>
+        <td class="px-3 py-2">${escapeHtml(u.role || "—")}</td>
+        <td class="px-3 py-2">${escapeHtml(u.schedule || "—")}</td>
+        <td class="px-3 py-2">
+          <button
+            data-user-id="${escapeHtml(u.id)}"
+            class="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/15"
+          >
+            View
+          </button>
+        </td>
+      </tr>
+    `)
+    .join("");
+}
+
 
 async function renderPendingOb() {
   if (!ui.pendingObBody || !ui.pendingObCount) return;
@@ -823,7 +872,7 @@ async function runLiveScanOnce() {
       return;
     }
 
-    const threshold = Number(ui.threshold?.value ?? 0.55);
+    const threshold = Number(ui.threshold?.value ?? 0.35);
     const d = results[0]?.descriptor || null;
 
     if (!d) {
@@ -1203,7 +1252,7 @@ async function enroll() {
     return;
   }
 
-  const threshold = Number(ui.threshold?.value ?? 0.55);
+  const threshold = Number(ui.threshold?.value ?? 0.35);
 
   const matchResp = await safeFetchJson("/api/face/match", {
     method: "POST",
@@ -1251,6 +1300,7 @@ async function enroll() {
   if (ui.enrollRole) ui.enrollRole.value = "";
   if (ui.enrollSchedule) ui.enrollSchedule.value = "";
 
+  renderActiveUsers();
   renderProfiles();
 }
 
@@ -1269,7 +1319,7 @@ async function attendance(type) {
     if (!stream) return appendStatus(`${type}: Start the camera first.`);
     if (!modelsReady) return appendStatus(`${type}: Models not ready yet.`);
 
-    const threshold = Number(ui.threshold?.value ?? 0.55);
+    const threshold = Number(ui.threshold?.value ?? 0.35);
 
     if (!isSelectedDateToday()) {
       appendStatus("Check In/Out is disabled for past dates.");
@@ -1876,6 +1926,7 @@ function bindEvents() {
   renderLogs();
   updateCheckButtonsState();
 
+  renderActiveUsers();
   renderPendingOb();
 
   try {

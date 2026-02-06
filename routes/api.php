@@ -7,7 +7,7 @@ use App\Http\Controllers\Api\EnrollController;
 use App\Http\Controllers\Api\FaceController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\OfficialBusinessController;
-
+use App\Http\Controllers\Api\UserController;
 
 
 Route::get('/user', function (Request $request) {
@@ -31,3 +31,5 @@ Route::get('/attendance/logs', [AttendanceController::class, 'logs']); // option
 
 Route::get('/official-businesses', [OfficialBusinessController::class, 'index']);
 Route::post('/official-businesses', [OfficialBusinessController::class, 'store']);
+
+Route::get('/users/active', [UserController::class, 'active']);

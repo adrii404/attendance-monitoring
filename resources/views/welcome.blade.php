@@ -88,7 +88,7 @@
               </div>
               <div class="mt-2 space-y-3" id="scheduleTables">
                 <!-- JS will render one table per schedule here -->
-                </div>
+              </div>
               <div id="pendingObWrap" class="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/30">
                 <div class="flex items-center justify-between bg-white/10 px-3 py-2">
                     <div class="text-xs font-semibold text-slate-200">Pending Official Business</div>
@@ -114,8 +114,8 @@
                     </table>
                 </div>
                 </div>
-            </div>
-
+              </div>
+              
             <div class="mt-4 flex justify-end gap-2">
               <button id="btnRequestOb" type="button"
                 class="rounded-xl bg-green-700 px-3 py-2 text-xs font-semibold hover:bg-green-600 cursor-pointer">
@@ -192,6 +192,36 @@
           <div id="toastList" class="space-y-3"></div>
 
           <div id="adminPanel" class="rounded-3xl border border-white/10 bg-white/5 p-4 shadow">
+
+            <!-- Active Users -->
+            <div class="mb-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/30">
+              <div class="flex items-center justify-between bg-white/10 px-3 py-2">
+                <div class="text-xs font-semibold text-slate-200">Active Users</div>
+                <div class="text-[11px] text-slate-400">
+                  <span id="activeUsersCount">0</span> active
+                </div>
+              </div>
+
+              <div class="scrollbar-att max-h-[16em] overflow-y-auto rounded-b-2xl bg-slate-950/20">
+                <table class="w-full text-left text-xs">
+                  <thead class="sticky top-0 bg-slate-950/60 text-slate-200 backdrop-blur">
+                    <tr>
+                      <th class="px-3 py-2">Name</th>
+                      <th class="px-3 py-2">Role</th>
+                      <th class="px-3 py-2">Schedule</th>
+                      <th class="px-3 py-2">Action</th>
+                    </tr>
+                  </thead>
+
+                  <tbody id="activeUsersBody" class="divide-y divide-white/10">
+                    <tr>
+                      <td class="px-3 py-3 text-slate-400" colspan="4">Loading…</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
               <div>
                 <div class="text-sm font-semibold">Enroll person</div>
@@ -252,8 +282,8 @@
               <div class="text-xs text-slate-300">Threshold (lower = stricter) — Admin only</div>
 
               <div class="mt-2 flex items-center gap-3">
-                <input id="threshold" type="range" min="0.35" max="0.75" step="0.01" value="0.55" class="w-full">
-                <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.55</div>
+                <input id="threshold" type="range" min="0.35" max="0.75" step="0.01" value="0.35" class="w-full">
+                <div class="w-14 text-right text-sm font-mono" id="thresholdVal">0.35</div>
               </div>
 
               <div class="mt-1 text-[11px] text-slate-400">Tip: 0.50–0.60 is a common starting range.</div>
@@ -396,7 +426,7 @@
 
           <div class="flex justify-end gap-2 border-t border-white/10 bg-white/5 px-4 py-3">
             <button id="obCancel" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">Cancel</button>
-            <button id="obSubmit" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400">Submit Request</button>
+            <button id="obSubmit" class="rounded-xl bg-green-700 px-3 py-2 text-xs font-semibold text-white hover:bg-green-600">Submit Request</button>
           </div>
         </div>
       </div>
