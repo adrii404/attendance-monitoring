@@ -53,6 +53,22 @@ const ui = {
   activeUsersBody: el("activeUsersBody"),
   activeUsersCount: el("activeUsersCount"),
 
+  userModal: el("userModal"),
+  userModalX: el("userModalX"),
+  userModalCancel: el("userModalCancel"),
+  userModalStatus: el("userModalStatus"),
+  userModalSub: el("userModalSub"),
+
+  userEditId: el("userEditId"),
+  userEditName: el("userEditName"),
+  userEditContact: el("userEditContact"),
+  userEditRole: el("userEditRole"),
+  userEditSchedule: el("userEditSchedule"),
+  userEditPassword: el("userEditPassword"),
+
+  userSaveBtn: el("userSaveBtn"),
+  userRemoveBtn: el("userRemoveBtn"),
+
   btnStart: el("btnStart"),
   btnStop: el("btnStop"),
   btnFlip: el("btnFlip"),
@@ -237,28 +253,42 @@ function showRightToast({ name, date, time, action, photoDataUrl }) {
 
 const SERVER_MATCH_MIN_INTERVAL_MS = 800;
 
+
+function getCsrfToken() {
+  return document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
+}
+
 async function safeFetchJson(url, options = {}) {
   try {
+    const method = (options.method || "GET").toUpperCase();
+
+    const headers = {
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      ...(options.headers || {}),
+    };
+
+    // ✅ Add CSRF for non-GET
+    if (method !== "GET") {
+      headers["X-CSRF-TOKEN"] = getCsrfToken();
+    }
+
     const res = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        ...(options.headers || {}),
-      },
       ...options,
+      headers,
     });
 
     let data = null;
     try {
       data = await res.json();
-    } catch (_) {
-      // ignore non-json
-    }
+    } catch (_) {}
 
     return { ok: res.ok, status: res.status, data };
   } catch (e) {
     return { ok: false, status: 0, data: null, error: e };
   }
 }
+
 
 async function serverMatchDescriptor(descriptor, threshold) {
   const nowMs = Date.now();
@@ -342,6 +372,145 @@ async function renderActiveUsers() {
     `)
     .join("");
 }
+
+
+
+function userModalShowStatus(msg) {
+  if (!ui.userModalStatus) return;
+  ui.userModalStatus.textContent = msg || "";
+  ui.userModalStatus.classList.remove("hidden");
+}
+
+function openUserModal() {
+  if (!ui.userModal) return;
+  ui.userModalStatus?.classList.add("hidden");
+  ui.userModal.classList.remove("hidden");
+  ui.userModal.classList.add("flex");
+}
+
+function closeUserModal() {
+  if (!ui.userModal) return;
+  ui.userModal.classList.add("hidden");
+  ui.userModal.classList.remove("flex");
+  if (ui.userEditPassword) ui.userEditPassword.value = "";
+}
+
+function fillSelectOptions(selectEl, items, getValue, getLabel) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+  for (const it of items) {
+    const opt = document.createElement("option");
+    opt.value = String(getValue(it));
+    opt.textContent = String(getLabel(it));
+    opt.className = "bg-slate-900 text-slate-100";
+    selectEl.appendChild(opt);
+  }
+}
+
+async function openUserEdit(userId) {
+  const ok = await requireAdmin("Edit user");
+  if (!ok) return;
+
+  // populate selects
+  const roles = Array.isArray(window.__ROLES__) ? window.__ROLES__ : [];
+  const schedules = Array.isArray(window.__SCHEDULES__) ? window.__SCHEDULES__ : [];
+
+  fillSelectOptions(ui.userEditRole, roles, (r) => r.id, (r) => r.title || r.name || `Role #${r.id}`);
+  fillSelectOptions(ui.userEditSchedule, schedules, (s) => s.id, (s) => s.description || `Schedule #${s.id}`);
+
+  // load user from API
+  userModalShowStatus("Loading…");
+  openUserModal();
+
+  const r = await safeFetchJson(`/api/users/${encodeURIComponent(userId)}`, { method: "GET" });
+
+  if (!r.ok || !r.data?.user) {
+    userModalShowStatus("Failed to load user.");
+    return;
+  }
+
+  const u = r.data.user;
+
+  if (ui.userEditId) ui.userEditId.value = String(u.id);
+  if (ui.userEditName) ui.userEditName.value = u.name || "";
+  if (ui.userEditContact) ui.userEditContact.value = u.contact_number || "";
+  if (ui.userEditRole) ui.userEditRole.value = String(u.role_id || "");
+  if (ui.userEditSchedule) ui.userEditSchedule.value = String(u.schedule_id || "");
+  if (ui.userModalSub) ui.userModalSub.textContent = `User ID: ${u.id}`;
+
+  ui.userModalStatus?.classList.add("hidden");
+}
+
+async function saveUserEdit() {
+  const ok = await requireAdmin("Save user changes");
+  if (!ok) return;
+
+  const id = Number(ui.userEditId?.value || 0);
+  if (!id) return userModalShowStatus("Missing user id.");
+
+  const payload = {
+    name: (ui.userEditName?.value || "").trim(),
+    contact_number: (ui.userEditContact?.value || "").trim(),
+    role_id: Number(ui.userEditRole?.value || 0),
+    schedule_id: Number(ui.userEditSchedule?.value || 0),
+  };
+
+  const pw = (ui.userEditPassword?.value || "").trim();
+  if (pw) payload.password = pw;
+
+  if (!payload.name) return userModalShowStatus("Name is required.");
+  if (!payload.role_id) return userModalShowStatus("Role is required.");
+  if (!payload.schedule_id) return userModalShowStatus("Schedule is required.");
+
+  userModalShowStatus("Saving…");
+
+  const r = await safeFetchJson(`/api/users/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!r.ok) {
+    console.log("SAVE FAILED", r.status, r.data);
+    const msg =
+      r.data?.message ||
+      (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
+    userModalShowStatus(`Save failed: ${msg}`);
+    return;
+  }
+
+  userModalShowStatus("Saved ✅");
+  await renderActiveUsers(); // refresh list
+  setTimeout(() => closeUserModal(), 500);
+}
+
+async function removeUserSoftDelete() {
+  const ok = await requireAdmin("Remove user");
+  if (!ok) return;
+
+  const id = Number(ui.userEditId?.value || 0);
+  if (!id) return userModalShowStatus("Missing user id.");
+
+  const yes = confirm("Remove this user? (This will set deleted_at, and hide them from active lists.)");
+  if (!yes) return;
+
+  userModalShowStatus("Removing…");
+
+  const r = await safeFetchJson(`/api/users/${id}`, { method: "DELETE" });
+
+  if (!r.ok) {
+    const msg =
+      r.data?.message ||
+      (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
+    userModalShowStatus(`Remove failed: ${msg}`);
+    return;
+  }
+
+  userModalShowStatus("Removed ✅");
+  await renderActiveUsers();
+  setTimeout(() => closeUserModal(), 500);
+}
+
 
 
 async function renderPendingOb() {
@@ -616,6 +785,9 @@ async function setOrChangePasswordFlow() {
 }
 
 async function requireAdmin(actionLabel = "this action") {
+  // ✅ If admin session is ON, don't ask again
+  if (isAdminLoggedIn()) return true;
+
   let hash = getAdminHash();
   if (!hash) {
     const ok = await setOrChangePasswordFlow();
@@ -637,8 +809,14 @@ async function requireAdmin(actionLabel = "this action") {
     alert("Wrong password.");
     return false;
   }
+
+  // ✅ set admin session so next actions won't prompt again
+  setAdminLoggedIn(true);
+  applyAdminUiState();
+
   return true;
 }
+
 
 // ---------------- Admin session toggle ----------------
 function isAdminLoggedIn() {
@@ -1084,6 +1262,7 @@ async function renderProfiles() {
     });
   });
 }
+
 
 async function renderLogs() {
   const holder = document.getElementById("scheduleTables");
@@ -1896,6 +2075,24 @@ function bindEvents() {
       runLiveScanOnce();
     }
   });
+
+  // Close modal
+  ui.userModalX?.addEventListener("click", (e) => { e.preventDefault(); closeUserModal(); });
+  ui.userModalCancel?.addEventListener("click", (e) => { e.preventDefault(); closeUserModal(); });
+
+  // Save / Remove
+  ui.userSaveBtn?.addEventListener("click", (e) => { e.preventDefault(); saveUserEdit(); });
+  ui.userRemoveBtn?.addEventListener("click", (e) => { e.preventDefault(); removeUserSoftDelete(); });
+
+  // Click "View" in active users table (event delegation)
+  document.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.("button[data-user-id]");
+    if (!btn) return;
+    const userId = btn.getAttribute("data-user-id");
+    if (!userId) return;
+    openUserEdit(userId).catch((err) => userModalShowStatus(err?.message || String(err)));
+  });
+
   
   gateThresholdEvents();
 }

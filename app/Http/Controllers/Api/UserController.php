@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+
 
 class UserController extends Controller
 {
@@ -34,4 +36,52 @@ class UserController extends Controller
             ]),
         ]);
     }
+
+    public function show(User $user)
+    {
+        // include soft-deleted? usually no. if you want include, use withTrashed in route binding.
+        return response()->json([
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'contact_number' => $user->contact_number,
+                'role_id' => $user->role_id,
+                'schedule_id' => $user->schedule_id,
+                'deleted_at' => $user->deleted_at,
+            ],
+        ]);
+    }
+
+    public function update(Request $request, User $user)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'contact_number' => ['nullable', 'string', 'max:50'],
+            'role_id' => ['required', 'integer', Rule::exists('roles', 'id')],
+            'schedule_id' => ['required', 'integer', Rule::exists('schedules', 'id')],
+            'password' => ['nullable', 'string', 'min:8'],
+        ]);
+
+        $user->name = $data['name'];
+        $user->contact_number = $data['contact_number'] ?? null;
+        $user->role_id = $data['role_id'];
+        $user->schedule_id = $data['schedule_id'];
+
+        if (!empty($data['password'])) {
+            $user->password = bcrypt($data['password']);
+        }
+
+        $user->save();
+
+        return response()->json(['success' => true]);
+    }
+
+    public function destroy(User $user)
+    {
+        // soft delete -> sets deleted_at
+        $user->delete();
+
+        return response()->json(['success' => true]);
+    }
 }
+

@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 
     <title>{{ config('app.name', 'Laravel') }}</title>
 
@@ -431,12 +432,89 @@
         </div>
       </div>
 
+      <!-- Edit User Modal -->
+      <div id="userModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+        <div class="w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-slate-950 shadow-xl">
+          <div class="flex items-center justify-between border-b border-white/10 bg-white/5 px-4 py-3">
+            <div>
+              <div class="text-sm font-semibold text-slate-100">Edit User</div>
+              <div class="text-xs text-slate-300" id="userModalSub">—</div>
+            </div>
+            <button id="userModalX" class="rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold hover:bg-white/15">X</button>
+          </div>
+
+          <div class="scrollbar-att max-h-[70vh] overflow-y-auto p-4 space-y-3">
+            <input type="hidden" id="userEditId" />
+
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="space-y-1">
+                <label class="text-xs text-slate-300">Full name</label>
+                <input id="userEditName" type="text"
+                  class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+              </div>
+
+              <div class="space-y-1">
+                <label class="text-xs text-slate-300">Contact number</label>
+                <input id="userEditContact" type="text"
+                  class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+              </div>
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="space-y-1">
+                <label class="text-xs text-slate-300">Role</label>
+                <select id="userEditRole"
+                  class="w-full rounded-xl bg-slate-900 text-slate-100 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60 border border-white/10">
+                  <option value="" disabled selected>Select Role</option>
+                </select>
+              </div>
+
+              <div class="space-y-1">
+                <label class="text-xs text-slate-300">Schedule</label>
+                <select id="userEditSchedule"
+                  class="w-full rounded-xl bg-slate-900 text-slate-100 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60 border border-white/10">
+                  <option value="" disabled selected>Select Schedule</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-xs text-slate-300">New password (optional)</label>
+              <input id="userEditPassword" type="password" placeholder="Leave blank to keep current password"
+                class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+            </div>
+
+            <div id="userModalStatus" class="hidden rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-300"></div>
+          </div>
+
+          <div class="flex flex-wrap justify-between gap-2 border-t border-white/10 bg-white/5 px-4 py-3">
+            <button id="userRemoveBtn"
+              class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">
+              Remove (soft delete)
+            </button>
+
+            <div class="flex gap-2">
+              <button id="userModalCancel"
+                class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">
+                Cancel
+              </button>
+              <button id="userSaveBtn"
+                class="rounded-xl bg-emerald-500/90 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400">
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
       <footer class="mt-8 text-center text-[11px] text-slate-500"></footer>
     </main>
 
     <script>
       window.__SCHEDULES__ = @json($schedules);
       window.__USERS__ = @json($users);
+      window.__ROLES__ = @json($roles);
     </script>
   </body>
 </html>

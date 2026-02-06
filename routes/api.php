@@ -33,3 +33,6 @@ Route::get('/official-businesses', [OfficialBusinessController::class, 'index'])
 Route::post('/official-businesses', [OfficialBusinessController::class, 'store']);
 
 Route::get('/users/active', [UserController::class, 'active']);
+Route::get('/users/{user}', [UserController::class, 'show']);
+Route::put('/users/{user}', [UserController::class, 'update']);
+Route::delete('/users/{user}', [UserController::class, 'destroy']);
