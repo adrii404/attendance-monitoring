@@ -516,8 +516,11 @@ async function removeUserSoftDelete() {
 async function renderPendingOb() {
   if (!ui.pendingObBody || !ui.pendingObCount) return;
 
+  const adminOn = isAdminLoggedIn();
+  const visibleCols = adminOn ? 7 : 5;
+
   ui.pendingObBody.innerHTML = `
-    <tr><td class="px-3 py-3 text-slate-400" colspan="5">Loading…</td></tr>
+    <tr><td class="px-3 py-3 text-slate-400" colspan="${visibleCols}">Loading…</td></tr>
   `;
 
   const r = await safeFetchJson("/api/official-businesses?status=pending", { method: "GET" });
@@ -525,7 +528,7 @@ async function renderPendingOb() {
   if (!r.ok || !Array.isArray(r.data?.items)) {
     ui.pendingObCount.textContent = "0";
     ui.pendingObBody.innerHTML = `
-      <tr><td class="px-3 py-3 text-slate-400" colspan="5">Failed to load pending OB.</td></tr>
+      <tr><td class="px-3 py-3 text-slate-400" colspan="${visibleCols}">Failed to load pending OB.</td></tr>
     `;
     return;
   }
@@ -535,7 +538,7 @@ async function renderPendingOb() {
 
   if (!items.length) {
     ui.pendingObBody.innerHTML = `
-      <tr><td class="px-3 py-3 text-slate-400" colspan="5">No pending OB requests.</td></tr>
+      <tr><td class="px-3 py-3 text-slate-400" colspan="${visibleCols}">No pending OB requests.</td></tr>
     `;
     return;
   }
@@ -546,16 +549,64 @@ async function renderPendingOb() {
     s === "approved" ? "text-emerald-300" :
     s === "rejected" ? "text-rose-300" : "text-slate-200";
 
-  ui.pendingObBody.innerHTML = items.map((x) => `
-    <tr class="text-slate-200">
-      <td class="px-3 py-2 font-semibold">${escapeHtml(x.name || "—")}</td>
-      <td class="px-3 py-2">${escapeHtml(x.schedule || "—")}</td>
-      <td class="px-3 py-2">${escapeHtml(typeLabel(x.type))}</td>
-      <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(x.requested_at || "—")}</td>
-      <td class="px-3 py-2 font-semibold ${statusClass(x.status)}">${escapeHtml(x.status || "—")}</td>
-    </tr>
-  `).join("");
+  const iconCheck = `
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fill-rule="evenodd" d="M16.704 5.29a1 1 0 010 1.415l-7.5 7.5a1 1 0 01-1.415 0l-3.5-3.5a1 1 0 111.415-1.414l2.793 2.792 6.793-6.793a1 1 0 011.414 0z" clip-rule="evenodd"/>
+    </svg>
+  `;
+
+  const iconX = `
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+    </svg>
+  `;
+
+  ui.pendingObBody.innerHTML = items.map((x) => {
+    const notes = (x.notes || "").trim();
+    const safeNotes = notes ? escapeHtml(notes) : `<span class="text-slate-500">—</span>`;
+
+    const actionTd = adminOn ? `
+      <td class="px-3 py-2" data-admin-only>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center justify-center rounded-lg bg-emerald-500/15 px-2 py-1 text-emerald-200 hover:bg-emerald-500/25"
+            title="Approve"
+            data-ob-action="approve"
+            data-ob-id="${escapeHtml(x.id)}"
+          >${iconCheck}</button>
+
+          <button
+            type="button"
+            class="inline-flex items-center justify-center rounded-lg bg-rose-500/15 px-2 py-1 text-rose-200 hover:bg-rose-500/25"
+            title="Reject"
+            data-ob-action="reject"
+            data-ob-id="${escapeHtml(x.id)}"
+          >${iconX}</button>
+        </div>
+      </td>
+    ` : "";
+
+    const notesTd = adminOn ? `
+      <td class="px-3 py-2 max-w-[220px] truncate" title="${escapeHtml(notes)}" data-admin-only>
+        ${safeNotes}
+      </td>
+    ` : "";
+
+    return `
+      <tr class="text-slate-200">
+        ${actionTd}
+        <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(x.requested_at || "—")}</td>
+        <td class="px-3 py-2 font-semibold">${escapeHtml(x.name || "—")}</td>
+        <td class="px-3 py-2">${escapeHtml(x.schedule || "—")}</td>
+        <td class="px-3 py-2">${escapeHtml(typeLabel(x.type))}</td>
+        ${notesTd}
+        <td class="px-3 py-2 font-semibold ${statusClass(x.status)}">${escapeHtml(x.status || "—")}</td>
+      </tr>
+    `;
+  }).join("");
 }
+
 
 
 let stream = null;
@@ -839,6 +890,13 @@ function applyAdminUiState() {
   if (!on && lastThresholdValue !== null) {
     setThresholdValue(lastThresholdValue);
   }
+
+  document.querySelectorAll("[data-admin-only]").forEach((node) => {
+    node.classList.toggle("hidden", !on);
+  });
+
+  // Optional: re-render to fix colspan & show buttons properly
+  renderPendingOb();
 }
 
 // ---------------- Storage (legacy fallback for profiles) ----------------
@@ -2059,6 +2117,51 @@ function bindEvents() {
       });
     }
   });
+
+  document.addEventListener("click", async (e) => {
+    const btn = e.target?.closest?.("button[data-ob-action][data-ob-id]");
+    if (!btn) return;
+  
+    const ok = await requireAdmin("Approve/Reject OB");
+    if (!ok) return;
+  
+    const id = btn.getAttribute("data-ob-id");
+    const action = btn.getAttribute("data-ob-action"); // approve|reject
+  
+    // prevent double click
+    btn.disabled = true;
+    btn.classList.add("opacity-60", "cursor-not-allowed");
+  
+    try {
+      const status = action === "approve" ? "approved" : "rejected";
+  
+      // ✅ adjust this endpoint if yours is different
+      const r = await safeFetchJson(`/api/official-businesses/${encodeURIComponent(id)}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,           // approved | rejected
+          review_notes: null
+        }),
+      });
+  
+      if (!r.ok) {
+        const msg =
+          r.data?.message ||
+          (r.data?.errors ? Object.values(r.data.errors).flat().join(" ") : `HTTP ${r.status}`);
+        appendStatus(`OB review failed: ${msg}`);
+        return;
+      }
+  
+      appendStatus(`OB #${id} ${status} ✅`);
+      renderPendingOb();
+      renderLogs(); // optional: if approval should reflect attendance logs
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove("opacity-60", "cursor-not-allowed");
+    }
+  });
+  
 
   window.addEventListener("resize", () => requestAnimationFrame(resizeOverlayToVideo));
   ui.video?.addEventListener("loadedmetadata", () =>

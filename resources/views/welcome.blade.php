@@ -97,22 +97,29 @@
                 </div>
 
                 <div class="scrollbar-att max-h-[14em] overflow-y-auto rounded-b-2xl bg-slate-950/20">
-                    <table class="w-full text-left text-xs">
+                  <table class="w-full text-left text-xs">
                     <thead class="sticky top-0 bg-slate-950/60 text-slate-200 backdrop-blur">
-                        <tr>
+                      <tr>
+                        <th class="px-3 py-2 hidden" data-admin-only>Action</th>
+                        <th class="px-3 py-2">Requested At</th>
                         <th class="px-3 py-2">Name</th>
                         <th class="px-3 py-2">Schedule</th>
                         <th class="px-3 py-2">Type</th>
-                        <th class="px-3 py-2">Requested At</th>
+
+                        <!-- ✅ Admin-only -->
+                        <th class="px-3 py-2 hidden" data-admin-only>Notes</th>
+
                         <th class="px-3 py-2">Status</th>
-                        </tr>
+                      </tr>
                     </thead>
+
                     <tbody id="pendingObBody" class="divide-y divide-white/10">
-                        <tr>
+                      <tr>
+                        <!-- default assumes admin-only hidden (5 cols visible) -->
                         <td class="px-3 py-3 text-slate-400" colspan="5">Loading…</td>
-                        </tr>
+                      </tr>
                     </tbody>
-                    </table>
+                  </table>
                 </div>
                 </div>
               </div>

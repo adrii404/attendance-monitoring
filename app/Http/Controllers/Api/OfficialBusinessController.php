@@ -4,20 +4,19 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\OfficialBusiness;
-use App\Models\User;
-use App\Models\Schedule;
+use App\Models\AttendanceLog;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
 
 class OfficialBusinessController extends Controller
 {
-
     public function index(Request $request)
     {
         $status = $request->query('status'); // e.g. pending
 
-        $q = \App\Models\OfficialBusiness::query()
+        $q = OfficialBusiness::query()
             ->with(['user:id,name', 'schedule:id,description'])
             ->orderByDesc('requested_at');
 
@@ -35,6 +34,7 @@ class OfficialBusinessController extends Controller
                     'schedule'     => $ob->schedule?->description,
                     'type'         => $ob->type, // in|out
                     'requested_at' => optional($ob->requested_at)->format('Y-m-d H:i:s'),
+                    'notes'        => $ob->notes,
                     'status'       => $ob->status,
                 ];
             }),
@@ -43,34 +43,22 @@ class OfficialBusinessController extends Controller
 
     public function store(Request $request)
     {
-        // ✅ Validate payload coming from your app.js
         $data = $request->validate([
-            'user_id'       => ['required', 'integer', 'exists:users,id'],
-            'schedule_id'   => ['required', 'integer', 'exists:schedules,id'],
-            'type'          => ['required', Rule::in(['in', 'out'])], // ✅ no both
-            'requested_at'  => ['required', 'date_format:Y-m-d H:i:s'],
-            'notes'         => ['nullable', 'string', 'max:1000'],
+            'user_id'      => ['required', 'integer', 'exists:users,id'],
+            'schedule_id'  => ['required', 'integer', 'exists:schedules,id'],
+            'type'         => ['required', Rule::in(['in', 'out'])],
+            'requested_at' => ['required', 'date_format:Y-m-d H:i:s'],
+            'notes'        => ['nullable', 'string', 'max:1000'],
         ]);
 
-        // (Optional) sanity checks
-        // Make sure requested_at is not crazy (ex: too far past/future)
+        // (optional) validate date format more strictly / normalize
         $requestedAt = Carbon::createFromFormat('Y-m-d H:i:s', $data['requested_at']);
 
-        // Example rule: disallow > 30 days in the future
-        // if ($requestedAt->gt(now()->addDays(30))) {
-        //     return response()->json([
-        //         'message' => 'Requested date/time is too far in the future.'
-        //     ], 422);
-        // }
-
-        // (Optional) verify schedule exists and belongs/valid (if you have rules)
-        // $schedule = Schedule::findOrFail($data['schedule_id']);
-
-        // (Optional) prevent duplicates (same user/type/requested_at)
+        // prevent duplicates: same user/type/time that is still pending/approved
         $exists = OfficialBusiness::query()
             ->where('user_id', $data['user_id'])
             ->where('type', $data['type'])
-            ->where('requested_at', $data['requested_at'])
+            ->where('requested_at', $requestedAt->format('Y-m-d H:i:s'))
             ->whereIn('status', ['pending', 'approved'])
             ->exists();
 
@@ -84,7 +72,7 @@ class OfficialBusinessController extends Controller
             'user_id'      => $data['user_id'],
             'schedule_id'  => $data['schedule_id'],
             'type'         => $data['type'],
-            'requested_at' => $data['requested_at'],
+            'requested_at' => $requestedAt,
             'notes'        => $data['notes'] ?? null,
             'status'       => 'pending',
         ]);
@@ -102,5 +90,78 @@ class OfficialBusinessController extends Controller
                 'created_at'   => $ob->created_at?->toISOString(),
             ],
         ], 201);
+    }
+
+    public function review(Request $request, OfficialBusiness $officialBusiness)
+    {
+        $data = $request->validate([
+            'status'       => ['required', 'in:approved,rejected'],
+            'review_notes' => ['nullable', 'string', 'max:5000'],
+            'device_id'    => ['nullable', 'string', 'max:64'],
+        ]);
+
+        // only pending can be reviewed
+        if ($officialBusiness->status !== 'pending') {
+            return response()->json([
+                'message' => 'This request is already reviewed.',
+                'status'  => $officialBusiness->status,
+            ], 409);
+        }
+
+        $adminId  = auth()->id(); // make sure this route is protected by auth middleware
+        $deviceId = $data['device_id'] ?? 'ob-admin';
+
+        return DB::transaction(function () use ($officialBusiness, $data, $adminId, $deviceId) {
+
+            // ✅ update review fields
+            $officialBusiness->status      = $data['status'];
+            $officialBusiness->reviewed_by = $adminId;
+            $officialBusiness->reviewed_at = now();
+            $officialBusiness->review_notes = $data['review_notes'] ?? null;
+
+            $attendanceLogId = null;
+
+            if ($data['status'] === 'approved') {
+
+                // ✅ avoid duplicate log creation
+                $existing = AttendanceLog::query()
+                    ->where('user_id', $officialBusiness->user_id)
+                    ->where('type', $officialBusiness->type)
+                    ->where('schedule_id', $officialBusiness->schedule_id)
+                    ->where('occurred_at', $officialBusiness->requested_at)
+                    ->first();
+
+                if ($existing) {
+                    $attendanceLogId = $existing->id;
+                } else {
+                    $log = AttendanceLog::create([
+                        'user_id'     => $officialBusiness->user_id,
+                        'type'        => $officialBusiness->type,          // in|out
+                        'schedule_id' => $officialBusiness->schedule_id,
+                        'occurred_at' => $officialBusiness->requested_at,  // timestamp
+                        'device_id'   => $deviceId,
+                        'photo_path'  => null,
+                        'meta'        => null,
+                    ]);
+
+                    $attendanceLogId = $log->id;
+                }
+
+                $officialBusiness->attendance_log_id = $attendanceLogId;
+
+            } else {
+                // ✅ rejected => NO attendance log, and unlink any previous link
+                $officialBusiness->attendance_log_id = null;
+            }
+
+            $officialBusiness->save();
+
+            return response()->json([
+                'success'              => true,
+                'official_business_id' => $officialBusiness->id,
+                'status'               => $officialBusiness->status,
+                'attendance_log_id'    => $attendanceLogId, // null on rejected
+            ]);
+        });
     }
 }
