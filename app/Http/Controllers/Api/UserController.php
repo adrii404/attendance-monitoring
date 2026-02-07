@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\FaceProfile;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -78,6 +79,7 @@ class UserController extends Controller
 
     public function destroy(User $user)
     {
+        FaceProfile::where('user_id', $user->id)->update(['is_active' => false]);
         // soft delete -> sets deleted_at
         $user->delete();
 

@@ -497,7 +497,7 @@
           <div class="flex flex-wrap justify-between gap-2 border-t border-white/10 bg-white/5 px-4 py-3">
             <button id="userRemoveBtn"
               class="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-semibold text-rose-200 hover:bg-rose-500/30">
-              Remove (soft delete)
+              Remove Account
             </button>
 
             <div class="flex gap-2">
