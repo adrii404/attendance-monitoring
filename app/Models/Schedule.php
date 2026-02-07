@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Models\User;
 use App\Models\AttendanceLog;
+use App\Models\OfficialBusiness;
+use App\Models\AttendanceSummary;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -38,6 +40,11 @@ class Schedule extends Model
     public function officialBusinesses()
     {
         return $this->hasMany(OfficialBusiness::class);
+    }
+
+    public function attendanceSummaries()
+    {
+        return $this->hasMany(AttendanceSummary::class);
     }
 
 }

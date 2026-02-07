@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\OfficialBusiness;
 use App\Models\AttendanceLog;
+use App\Services\AttendanceSummaryService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -51,10 +52,8 @@ class OfficialBusinessController extends Controller
             'notes'        => ['nullable', 'string', 'max:1000'],
         ]);
 
-        // (optional) validate date format more strictly / normalize
         $requestedAt = Carbon::createFromFormat('Y-m-d H:i:s', $data['requested_at']);
 
-        // prevent duplicates: same user/type/time that is still pending/approved
         $exists = OfficialBusiness::query()
             ->where('user_id', $data['user_id'])
             ->where('type', $data['type'])
@@ -100,7 +99,6 @@ class OfficialBusinessController extends Controller
             'device_id'    => ['nullable', 'string', 'max:64'],
         ]);
 
-        // only pending can be reviewed
         if ($officialBusiness->status !== 'pending') {
             return response()->json([
                 'message' => 'This request is already reviewed.',
@@ -108,22 +106,22 @@ class OfficialBusinessController extends Controller
             ], 409);
         }
 
-        $adminId  = auth()->id(); // make sure this route is protected by auth middleware
+        $adminId  = auth()->id();
         $deviceId = $data['device_id'] ?? 'ob-admin';
 
         return DB::transaction(function () use ($officialBusiness, $data, $adminId, $deviceId) {
 
-            // ✅ update review fields
-            $officialBusiness->status      = $data['status'];
-            $officialBusiness->reviewed_by = $adminId;
-            $officialBusiness->reviewed_at = now();
+            $officialBusiness->status       = $data['status'];
+            $officialBusiness->reviewed_by  = $adminId;
+            $officialBusiness->reviewed_at  = now();
             $officialBusiness->review_notes = $data['review_notes'] ?? null;
 
             $attendanceLogId = null;
 
             if ($data['status'] === 'approved') {
 
-                // ✅ avoid duplicate log creation
+                $svc = app(AttendanceSummaryService::class);
+
                 $existing = AttendanceLog::query()
                     ->where('user_id', $officialBusiness->user_id)
                     ->where('type', $officialBusiness->type)
@@ -133,24 +131,30 @@ class OfficialBusinessController extends Controller
 
                 if ($existing) {
                     $attendanceLogId = $existing->id;
+
+                    // ✅ IMPORTANT: keep summaries correct even if log already existed
+                    $svc->upsertFromLog($existing);
+
                 } else {
                     $log = AttendanceLog::create([
                         'user_id'     => $officialBusiness->user_id,
-                        'type'        => $officialBusiness->type,          // in|out
+                        'type'        => $officialBusiness->type,
                         'schedule_id' => $officialBusiness->schedule_id,
-                        'occurred_at' => $officialBusiness->requested_at,  // timestamp
+                        'occurred_at' => $officialBusiness->requested_at,
                         'device_id'   => $deviceId,
                         'photo_path'  => null,
                         'meta'        => null,
                     ]);
 
                     $attendanceLogId = $log->id;
+
+                    // ✅ Update summary from newly created log
+                    $svc->upsertFromLog($log);
                 }
 
                 $officialBusiness->attendance_log_id = $attendanceLogId;
 
             } else {
-                // ✅ rejected => NO attendance log, and unlink any previous link
                 $officialBusiness->attendance_log_id = null;
             }
 
@@ -160,7 +164,7 @@ class OfficialBusinessController extends Controller
                 'success'              => true,
                 'official_business_id' => $officialBusiness->id,
                 'status'               => $officialBusiness->status,
-                'attendance_log_id'    => $attendanceLogId, // null on rejected
+                'attendance_log_id'    => $attendanceLogId,
             ]);
         });
     }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AttendanceLog;
 use App\Models\FaceProfile;
 use App\Models\User;
+use App\Services\AttendanceSummaryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
@@ -71,6 +72,8 @@ class AttendanceController extends Controller
             'photo_path'  => $photoPath,
             'meta'        => ['distance' => $best['distance']],
         ]);
+
+        app(AttendanceSummaryService::class)->upsertFromLog($log);
 
         return response()->json([
             'success' => true,

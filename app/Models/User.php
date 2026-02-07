@@ -5,7 +5,8 @@ namespace App\Models;
 use App\Models\Role;
 use App\Models\Schedule;
 use App\Models\AttendanceLog;
-use App\Models\OfficialBusinesses;
+use App\Models\OfficialBusiness;
+use App\Models\AttendanceSummary;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -57,6 +58,11 @@ class User extends Authenticatable
     public function officialBusinesses()
     {
         return $this->hasMany(OfficialBusiness::class);
+    }
+
+    public function attendanceSummaries()
+    {
+        return $this->hasMany(AttendanceSummary::class);
     }
 
 }
