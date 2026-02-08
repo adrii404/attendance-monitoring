@@ -64,7 +64,7 @@
         <!-- Left -->
         <section>
           <div class="rounded-3xl border border-white/10 bg-white/5 p-4 shadow">
-            <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+            <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               <div class="flex items-center justify-between">
                 <div class="text-xs font-semibold text-slate-200">Logs (selected day)</div>
                 <div class="text-[11px] text-slate-400"><span id="logsCount">0</span> people</div>
@@ -172,26 +172,37 @@
                 <span class="text-slate-400">Detected:</span>
                 <span id="liveDetectedName" class="font-semibold text-emerald-300">—</span>
               </div>
-
               <div class="mt-4">
-                <div>
-                  <div class="text-sm font-semibold">Attendance actions</div>
-                  <div class="text-xs text-slate-300">Face-match an enrolled person, then log check-in/out.</div>
-                </div>
-
-                <div class="mt-3 grid gap-2 lg:grid-cols-2">
-                  <button id="btnCheckIn" type="button"
-                    class="rounded-2xl bg-sky-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">
-                    Check In
-                  </button>
-                  <button id="btnCheckOut" type="button"
-                    class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300">
-                    Check Out
-                  </button>
+							<div class="mt-3 grid gap-2 lg:grid-cols-2">
+								<button id="btnCheckIn" type="button"
+									class="rounded-2xl bg-sky-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-sky-300">
+									Check In
+								</button>
+								<button id="btnCheckOut" type="button"
+									class="rounded-2xl bg-amber-400/90 px-3 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300">
+									Check Out
+								</button>
+							</div>
+							<div>
+									<div class="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/40">
+										<div class="flex items-center justify-between gap-2 bg-white/5 px-3 py-2">
+											<div class="flex items-center gap-2">
+												<span class="inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
+												<div class="text-xs font-semibold text-slate-200">System log</div>
+												<div class="text-[11px] text-slate-400">Live updates</div>
+											</div>
+										</div>
+										<pre
+											id="status"
+											class="scrollbar-att max-h-[8em] overflow-y-auto px-3 py-3
+														whitespace-pre-wrap break-words font-mono text-[12px] leading-5
+														text-slate-200/90
+														bg-gradient-to-b from-black/20 to-transparent"
+										></pre>
+									</div>
                 </div>
               </div>
             </div>
-
           </div>
         </section>
 
@@ -299,11 +310,6 @@
 
             <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-3">
               <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="text-sm font-semibold">System message</div>
-                  <div class="text-xs text-slate-300">Local demo only. Photos are saved per log (can hit browser storage limits).</div>
-                </div>
-
                 <div class="flex items-center gap-2">
                   <button id="btnChangePw" type="button"
                     class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">
@@ -315,12 +321,6 @@
                   </button>
                 </div>
               </div>
-
-              <pre
-                id="status"
-                class="scrollbar-att mt-3 whitespace-pre-wrap break-words text-xs text-slate-200/90
-                  max-h-[18.5em] overflow-y-auto pr-2 rounded-xl bg-black/10 ring-1 ring-white/10"
-              ></pre>
             </div>
 
             <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -514,6 +514,64 @@
         </div>
       </div>
 
+			<!-- Export Attendance CSV Modal -->
+			<div id="exportModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+				<div class="w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-slate-950 shadow-xl">
+					<div class="flex items-center justify-between border-b border-white/10 bg-white/5 px-4 py-3">
+						<div>
+							<div class="text-sm font-semibold text-slate-100">Export Attendance (CSV)</div>
+							<div class="text-xs text-slate-300">Filter by date range and users.</div>
+						</div>
+						<button id="exportX" class="rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold hover:bg-white/15">X</button>
+					</div>
+
+					<div class="p-4 space-y-3">
+						<div class="grid gap-3 sm:grid-cols-2">
+							<div class="space-y-1">
+								<label class="text-xs text-slate-300">From date</label>
+								<input id="exportFrom" type="date"
+									class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+							</div>
+							<div class="space-y-1">
+								<label class="text-xs text-slate-300">To date</label>
+								<input id="exportTo" type="date"
+									class="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60" />
+							</div>
+						</div>
+
+						<div class="space-y-1">
+							<label class="text-xs text-slate-300">Users</label>
+							<div class="flex items-center gap-2">
+								<label class="inline-flex items-center gap-2 text-xs text-slate-300">
+									<input id="exportAllUsers" type="checkbox" class="rounded border-white/20 bg-white/10">
+									All Users
+								</label>
+								<span class="text-[11px] text-slate-500">Uncheck to pick specific users.</span>
+							</div>
+
+							<select id="exportUsers" multiple
+								class="scrollbar-att w-full rounded-xl bg-slate-900 text-slate-100 px-3 py-2 text-sm
+											outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-emerald-400/60 border border-white/10
+											h-40">
+								<!-- JS will fill -->
+							</select>
+
+							<div class="text-[11px] text-slate-500">
+								Tip: Hold Ctrl/Command to select multiple.
+							</div>
+						</div>
+
+						<div id="exportStatus" class="hidden rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-xs text-slate-300"></div>
+					</div>
+
+					<div class="flex justify-end gap-2 border-t border-white/10 bg-white/5 px-4 py-3">
+						<button id="exportCancel" class="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/15">Cancel</button>
+						<button id="exportSubmit" class="rounded-xl bg-emerald-500/90 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400">
+							Export CSV
+						</button>
+					</div>
+				</div>
+			</div>
 
       <footer class="mt-8 text-center text-[11px] text-slate-500"></footer>
     </main>

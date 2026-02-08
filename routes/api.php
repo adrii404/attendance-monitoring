@@ -8,6 +8,8 @@ use App\Http\Controllers\Api\FaceController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\OfficialBusinessController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\AttendanceExportController;
+
 
 
 Route::get('/user', function (Request $request) {
@@ -35,3 +37,6 @@ Route::put('/users/{user}', [UserController::class, 'update']);
 Route::delete('/users/{user}', [UserController::class, 'destroy']);
 
 Route::get('/attendance/summaries', [AttendanceController::class, 'summaries']);
+
+Route::get('/attendance/export-xlsx', [AttendanceExportController::class, 'exportXlsx']);
+

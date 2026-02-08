@@ -66,6 +66,17 @@ const ui = {
   userEditSchedule: el("userEditSchedule"),
   userEditPassword: el("userEditPassword"),
 
+  exportModal: el("exportModal"),
+  exportX: el("exportX"),
+  exportCancel: el("exportCancel"),
+  exportSubmit: el("exportSubmit"),
+  exportFrom: el("exportFrom"),
+  exportTo: el("exportTo"),
+  exportUsers: el("exportUsers"),
+  exportAllUsers: el("exportAllUsers"),
+  exportStatus: el("exportStatus"),
+
+
   userSaveBtn: el("userSaveBtn"),
   userRemoveBtn: el("userRemoveBtn"),
 
@@ -2017,6 +2028,126 @@ async function submitObRequest() {
   }
 }
 
+function exportShowStatus(msg) {
+  if (!ui.exportStatus) return;
+  ui.exportStatus.textContent = msg || "";
+  ui.exportStatus.classList.remove("hidden");
+}
+
+function openExportModal() {
+  if (!ui.exportModal) return;
+  if (ui.exportStatus) ui.exportStatus.classList.add("hidden");
+
+  const today = isoDateLocal();
+  if (ui.exportFrom) ui.exportFrom.value = today;
+  if (ui.exportTo) ui.exportTo.value = today;
+
+  // Default: All Users ON
+  if (ui.exportAllUsers) ui.exportAllUsers.checked = true;
+
+  // Load user list (use your active users endpoint)
+  loadExportUsers().catch(() => {});
+
+  ui.exportModal.classList.remove("hidden");
+  ui.exportModal.classList.add("flex");
+
+  // Disable select when All Users checked
+  toggleExportUsersDisabled();
+}
+
+function closeExportModal() {
+  if (!ui.exportModal) return;
+  ui.exportModal.classList.add("hidden");
+  ui.exportModal.classList.remove("flex");
+}
+
+function toggleExportUsersDisabled() {
+  const all = !!ui.exportAllUsers?.checked;
+  if (ui.exportUsers) ui.exportUsers.disabled = all;
+  if (ui.exportUsers) ui.exportUsers.classList.toggle("opacity-60", all);
+}
+
+async function loadExportUsers() {
+  if (!ui.exportUsers) return;
+
+  ui.exportUsers.innerHTML = "";
+
+  const r = await safeFetchJson("/api/users/active?limit=200", { method: "GET" });
+
+  if (!r.ok || !Array.isArray(r.data?.items)) {
+    ui.exportUsers.innerHTML = `<option value="" disabled>Failed to load users</option>`;
+    return;
+  }
+
+  for (const u of r.data.items) {
+    const opt = document.createElement("option");
+    opt.value = String(u.id);
+    opt.textContent = u.name || `User ${u.id}`;
+    opt.className = "bg-slate-900 text-slate-100";
+    ui.exportUsers.appendChild(opt);
+  }
+}
+
+async function submitExportCsv() {
+  const ok = await requireAdmin("Export attendance CSV");
+  if (!ok) return;
+
+  const from = (ui.exportFrom?.value || "").trim();
+  const to = (ui.exportTo?.value || "").trim();
+  const all = !!ui.exportAllUsers?.checked;
+
+  if (!from || !to) return exportShowStatus("Please set both From and To dates.");
+
+  let usersParam = "";
+  if (!all) {
+    const selected = Array.from(ui.exportUsers?.selectedOptions || []).map(o => o.value);
+    if (!selected.length) return exportShowStatus("Select at least one user or enable All Users.");
+    usersParam = `&users=${encodeURIComponent(selected.join(","))}`;
+  }
+
+  exportShowStatus("Preparing CSV…");
+
+  const url = `/api/attendance/export-xlsx?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&all=${all ? "1" : "0"}${usersParam}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "X-Requested-With": "XMLHttpRequest" },
+  });
+
+  if (!res.ok) {
+    let msg = `Export failed (HTTP ${res.status})`;
+    try {
+      const j = await res.json();
+      if (j?.message) msg = j.message;
+    } catch {}
+    exportShowStatus(msg);
+    return;
+  }
+
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  const href = URL.createObjectURL(blob);
+
+  // Try to read filename from header, fallback
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/i);
+  const filename = m?.[1] || `attendance_summaries_${from}_to_${to}.csv`;
+
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+
+  setTimeout(() => {
+    URL.revokeObjectURL(href);
+    a.remove();
+  }, 0);
+
+  exportShowStatus("Download started ✅");
+  setTimeout(() => closeExportModal(), 600);
+}
+
+
 // ---------------- Wire up ----------------
 function bindEvents() {
   if (ui.btnStart) ui.btnStart.addEventListener("click", startCamera);
@@ -2057,7 +2188,28 @@ function bindEvents() {
     });
   }
 
-  if (ui.btnDownloadDay) ui.btnDownloadDay.addEventListener("click", downloadDayCsv);
+  if (ui.btnDownloadDay) {
+    ui.btnDownloadDay.addEventListener("click", () => openExportModal());
+  }
+  ui.exportX?.addEventListener("click", (e) => { e.preventDefault(); closeExportModal(); });
+  ui.exportCancel?.addEventListener("click", (e) => { e.preventDefault(); closeExportModal(); });
+
+  ui.exportAllUsers?.addEventListener("change", () => toggleExportUsersDisabled());
+
+  ui.exportModal?.addEventListener("click", (e) => {
+    if (e.target === ui.exportModal) closeExportModal();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeExportModal();
+  });
+
+  ui.exportSubmit?.addEventListener("click", (e) => {
+    e.preventDefault();
+    submitExportCsv().catch(err => exportShowStatus(err?.message || String(err)));
+  });
+
+
   if (ui.btnDownloadDayJson)
     ui.btnDownloadDayJson.addEventListener("click", downloadDayJson);
 
