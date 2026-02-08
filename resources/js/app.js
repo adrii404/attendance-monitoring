@@ -640,6 +640,39 @@ function timeLocal(d = now()) {
   return `${hh}:${mm}:${ss}`;
 }
 
+function ymdLocal(d) {
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function mmddyyyy(d) {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yy = d.getFullYear();
+  return `${mm}/${dd}/${yy}`;
+}
+
+/**
+ * ✅ Time Out display rule:
+ * - show ONLY time if checkout date == selected work_date
+ * - show time + "(MM/DD/YYYY)" if checkout date is different
+ */
+function formatTimeWithDateSuffix(isoString, workDateStr) {
+  if (!isoString) return "—";
+  const dt = new Date(isoString);
+  const t = timeLocal(dt);
+  const d = ymdLocal(dt);
+
+  if (workDateStr && d !== workDateStr) {
+    return `${t} (${mmddyyyy(dt)})`;
+  }
+  return t;
+}
+
+
+
 function setStatus(msg) {
   if (ui.status) ui.status.textContent = msg || "";
 }
@@ -1326,76 +1359,76 @@ async function renderLogs() {
   const holder = document.getElementById("scheduleTables");
   if (!holder || !ui.logsCount || !ui.datePicker) return;
 
+  // ✅ Selected date is the WORK DATE you want to view
   const dateStr = ui.datePicker.value || isoDateLocal();
 
+  // ✅ Pull from summaries endpoint
   const server = await safeFetchJson(
-    `/api/attendance/logs?date=${encodeURIComponent(dateStr)}`,
+    `/api/attendance/summaries?date=${encodeURIComponent(dateStr)}`,
     { method: "GET" }
   );
 
   const schedules = Array.isArray(window.__SCHEDULES__) ? window.__SCHEDULES__ : [];
 
+  // group bucket per schedule
   const groups = new Map();
   for (const s of schedules) {
     groups.set(String(s.id), {
       id: s.id,
       title: s.description || `Schedule #${s.id}`,
-      rows: new Map(),
+      rows: [],
     });
   }
   groups.set("unassigned", {
     id: null,
     title: "Unassigned Schedule",
-    rows: new Map(),
+    rows: [],
   });
 
   holder.innerHTML = "";
 
-  if (!server.ok || !Array.isArray(server.data?.logs)) {
+  const items = server.data?.items ?? server.data?.summaries ?? [];
+
+  if (!server.ok || !Array.isArray(items)) {
     holder.innerHTML = `
       <div class="rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-300">
-        Failed to load logs for ${escapeHtml(dateStr)}.
+        Failed to load summaries for ${escapeHtml(dateStr)}.
       </div>
     `;
     ui.logsCount.textContent = "0";
     return;
   }
+  
 
-  const logs = server.data.logs;
+  // ✅ One row per user per work_date
+  ui.logsCount.textContent = String(items.length);
 
-  for (const r of logs) {
-    const name = r.name || `User ${r.user_id}`;
+  // Fill groups
+  for (const r of items) {
+    const name = r.user?.name || r.name || `User ${r.user_id}`;
     const sid = r.schedule_id ? String(r.schedule_id) : "unassigned";
     const group = groups.get(sid) || groups.get("unassigned");
 
-    if (!group.rows.has(name)) {
-      group.rows.set(name, { name, time_in: null, time_out: null });
-    }
-    const item = group.rows.get(name);
+    const timeInStr = r.time_in_at ? timeLocal(new Date(r.time_in_at)) : "—";
 
-    const t = r.occurred_at ? new Date(r.occurred_at) : null;
-    const timeStr = t ? timeLocal(t) : "—";
+    // ✅ FIX #2: use the helper that exists
+    // Show date ONLY if checkout date != selected work_date
+    const timeOutStr = formatTimeWithDateSuffix(r.time_out_at, dateStr);
 
-    if (r.type === "in") {
-      if (!item.time_in || timeStr < item.time_in) item.time_in = timeStr;
-    } else if (r.type === "out") {
-      if (!item.time_out || timeStr > item.time_out) item.time_out = timeStr;
-    }
+    group.rows.push({
+      name,
+      time_in: timeInStr,
+      time_out: timeOutStr,
+      _sort_name: name.toLowerCase(),
+    });
   }
 
-  let totalPeople = 0;
-  for (const g of groups.values()) totalPeople += g.rows.size;
-  ui.logsCount.textContent = String(totalPeople);
-
   const renderGroup = (g) => {
-    const rows = Array.from(g.rows.values()).sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
+    const rows = (g.rows || []).slice().sort((a, b) => a._sort_name.localeCompare(b._sort_name));
     if (!rows.length) return;
 
     const wrap = document.createElement("div");
-    wrap.className =
-      "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/30";
+    wrap.className = "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/30";
 
     wrap.innerHTML = `
       <div class="flex items-center justify-between bg-white/10 px-3 py-2">
@@ -1414,21 +1447,13 @@ async function renderLogs() {
           </thead>
 
           <tbody class="divide-y divide-white/10">
-            ${rows
-              .map(
-                (r) => `
-                <tr class="text-slate-200">
-                  <td class="px-3 py-2 font-semibold">${escapeHtml(r.name)}</td>
-                  <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-                    r.time_in || "—"
-                  )}</td>
-                  <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(
-                    r.time_out || "—"
-                  )}</td>
-                </tr>
-              `
-              )
-              .join("")}
+            ${rows.map((x) => `
+              <tr class="text-slate-200">
+                <td class="px-3 py-2 font-semibold">${escapeHtml(x.name)}</td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(x.time_in || "—")}</td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(x.time_out || "—")}</td>
+              </tr>
+            `).join("")}
           </tbody>
         </table>
       </div>
@@ -1437,20 +1462,20 @@ async function renderLogs() {
     holder.appendChild(wrap);
   };
 
-  for (const s of schedules) {
-    renderGroup(groups.get(String(s.id)));
-  }
-
+  // render schedules in order
+  for (const s of schedules) renderGroup(groups.get(String(s.id)));
   renderGroup(groups.get("unassigned"));
 
   if (!holder.children.length) {
     holder.innerHTML = `
       <div class="scrollbar-att max-h-[18.5em] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/40 p-3 text-sm text-slate-400">
-        No logs for ${escapeHtml(dateStr)}.
+        No summaries for ${escapeHtml(dateStr)}.
       </div>
     `;
   }
 }
+
+
 
 function setDateToToday() {
   if (!ui.datePicker) return;

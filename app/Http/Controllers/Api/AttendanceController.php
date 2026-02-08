@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AttendanceLog;
 use App\Models\FaceProfile;
 use App\Models\User;
+use App\Models\AttendanceSummary;
 use App\Services\AttendanceSummaryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -180,4 +181,62 @@ class AttendanceController extends Controller
             ])->values(),
         ]);
     }
+    public function summaries(Request $request)
+    {
+        $data = $request->validate([
+            'date' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+
+        $date = $data['date'] ?? now()->toDateString();
+
+        $rows = AttendanceSummary::query()
+            ->with([
+                'user:id,name,contact_number',
+                'schedule:id,description,clock_in,clock_out',
+            ])
+            ->whereDate('work_date', $date)
+            ->orderBy('schedule_id')
+            ->orderBy('user_id')
+            ->get([
+                'id',
+                'user_id',
+                'schedule_id',
+                'work_date',
+                'time_in_at',
+                'time_out_at',
+                'status',
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'date' => $date,
+                'summaries' => $rows->map(fn($s) => [
+                    'id' => $s->id,
+                    'user_id' => $s->user_id,
+                    'schedule_id' => $s->schedule_id,
+                    'work_date' => optional($s->work_date)->format('Y-m-d'),
+                    'time_in_at' => $s->time_in_at?->toISOString(),
+                    'time_out_at' => $s->time_out_at?->toISOString(),
+                    'status' => $s->status,
+            
+                    // flatten name so JS can do r.name
+                    'name' => $s->user?->name,
+                    'contact_number' => $s->user?->contact_number,
+            
+                    'user' => $s->user ? [
+                        'id' => $s->user->id,
+                        'name' => $s->user->name,
+                        'contact_number' => $s->user->contact_number,
+                    ] : null,
+            
+                    'schedule' => $s->schedule ? [
+                        'id' => $s->schedule->id,
+                        'description' => $s->schedule->description,
+                        'clock_in' => $s->schedule->clock_in,
+                        'clock_out' => $s->schedule->clock_out,
+                    ] : null,
+                ])->values(),
+            ]);
+    }
+
 }
