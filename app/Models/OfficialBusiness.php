@@ -4,21 +4,23 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class AttendanceLog extends Model
+class OfficialBusiness extends Model
 {
     protected $fillable = [
         'user_id',
-        'type',
         'schedule_id',
-        'occurred_at',
-        'photo_path',
-        'device_id',
-        'meta',
+        'type',
+        'requested_at',
+        'notes',
+        'status',
+        'reviewed_by',
+        'reviewed_at',
+        'review_notes',
     ];
 
     protected $casts = [
-        'occurred_at' => 'datetime',
-        'meta' => 'array',
+        'requested_at' => 'datetime',
+        'reviewed_at'  => 'datetime',
     ];
 
     public function user()
@@ -26,9 +28,13 @@ class AttendanceLog extends Model
         return $this->belongsTo(User::class);
     }
 
-    // ✅ log belongs to a schedule (copied from user's schedule at time of logging)
     public function schedule()
     {
         return $this->belongsTo(Schedule::class);
+    }
+
+    public function reviewer()
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
     }
 }
