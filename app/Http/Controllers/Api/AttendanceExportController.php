@@ -5,18 +5,20 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceSummary;
 use App\Models\AttendanceLog;
+use App\Models\Schedule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 class AttendanceExportController extends Controller
 {
     public function exportXlsx(Request $request)
     {
-        $from = $request->query('from');
-        $to   = $request->query('to');
-        $userIds = $request->query('users');
+        $from     = $request->query('from');
+        $to       = $request->query('to');
+        $userIds  = $request->query('users');
         $allUsers = filter_var($request->query('all', '1'), FILTER_VALIDATE_BOOLEAN);
 
         if (!$from || !$to) {
@@ -62,10 +64,29 @@ class AttendanceExportController extends Controller
             $logsQuery->whereIn('user_id', $ids);
         }
 
-        // ---- Build XLSX (2 sheets) ----
+        /**
+         * ✅ Records computations will use schedule_id -> schedule start time
+         */
+        $scheduleIds = AttendanceSummary::query()
+            ->whereBetween('work_date', [$fromDate, $toDate])
+            ->when(!$allUsers, fn($q) => $q->whereIn('user_id', $ids))
+            ->whereNotNull('schedule_id')
+            ->distinct()
+            ->pluck('schedule_id')
+            ->values();
+
+        $startByScheduleId = Schedule::query()
+            ->whereIn('id', $scheduleIds)
+            ->pluck('clock_in', 'id') 
+            ->map(fn ($t) => $t ? substr((string)$t, 0, 8) : null)
+            ->toArray();
+
+        // ---- Build XLSX (3 sheets) ----
         $spreadsheet = new Spreadsheet();
 
+        // =========================
         // Sheet 1: Summaries
+        // =========================
         $sheet1 = $spreadsheet->getActiveSheet();
         $sheet1->setTitle('Summaries');
 
@@ -73,44 +94,140 @@ class AttendanceExportController extends Controller
             ['user_name', 'schedule', 'work_date', 'time_in_at', 'time_out_at', 'status']
         ], null, 'A1');
 
+        $sheet1->getStyle('C:C')->getNumberFormat()->setFormatCode('m/d/yyyy');
+        $sheet1->getStyle('D:E')->getNumberFormat()->setFormatCode('m/d/yyyy h:mm:ss AM/PM');
+
         $row = 2;
         $summaryQuery->chunk(500, function ($rows) use (&$row, $sheet1) {
             foreach ($rows as $r) {
-                $sheet1->fromArray([[
-                    $r->user?->name ?? '',
-                    $r->schedule?->description ?? '',
-                    $r->work_date ?? '',
-                    $r->time_in_at ?? '',
-                    $r->time_out_at ?? '',
-                    $r->status ?? '',
-                ]], null, "A{$row}");
+                $workDate = $r->work_date ? Carbon::parse($r->work_date) : null;
+                $timeIn   = $r->time_in_at ? Carbon::parse($r->time_in_at) : null;
+                $timeOut  = $r->time_out_at ? Carbon::parse($r->time_out_at) : null;
+
+                $sheet1->setCellValue("A{$row}", $r->user?->name ?? '');
+                $sheet1->setCellValue("B{$row}", $r->schedule?->description ?? '');
+
+                $sheet1->setCellValue("C{$row}", $workDate ? ExcelDate::PHPToExcel($workDate) : null);
+                $sheet1->setCellValue("D{$row}", $timeIn ? ExcelDate::PHPToExcel($timeIn) : null);
+                $sheet1->setCellValue("E{$row}", $timeOut ? ExcelDate::PHPToExcel($timeOut) : null);
+
+                $sheet1->setCellValue("F{$row}", $r->status ?? '');
                 $row++;
             }
         });
 
+        // =========================
         // Sheet 2: Logs
+        // =========================
         $sheet2 = $spreadsheet->createSheet();
         $sheet2->setTitle('Logs');
 
         $sheet2->fromArray([
-            ['user_name', 'schedule', 'type', 'occurred_at', 'device_id', 'photo_path', 'meta']
+            ['user_name', 'schedule', 'type', 'occurred_at']
         ], null, 'A1');
+
+        $sheet2->getStyle('D:D')->getNumberFormat()->setFormatCode('m/d/yyyy h:mm:ss AM/PM');
 
         $row2 = 2;
         $logsQuery->chunk(500, function ($rows) use (&$row2, $sheet2) {
             foreach ($rows as $r) {
-                $sheet2->fromArray([[
-                    $r->user?->name ?? '',
-                    $r->schedule?->description ?? '',
-                    $r->type ?? '',
-                    $r->occurred_at ?? '',
-                    $r->device_id ?? '',
-                    $r->photo_path ?? '',
-                    is_array($r->meta) ? json_encode($r->meta) : ($r->meta ?? ''),
-                ]], null, "A{$row2}");
+                $occurred = $r->occurred_at ? Carbon::parse($r->occurred_at) : null;
+
+                $sheet2->setCellValue("A{$row2}", $r->user?->name ?? '');
+                $sheet2->setCellValue("B{$row2}", $r->schedule?->description ?? '');
+                $sheet2->setCellValue("C{$row2}", $r->type ?? '');
+                $sheet2->setCellValue("D{$row2}", $occurred ? ExcelDate::PHPToExcel($occurred) : null);
+
                 $row2++;
             }
         });
+
+        // =========================
+        // Sheet 3: Records
+        // =========================
+        $sheet3 = $spreadsheet->createSheet();
+        $sheet3->setTitle('Records');
+
+        $sheet3->fromArray([
+            ['Employee', 'Days Present', 'Late Minutes', 'Total Hours']
+        ], null, 'A1');
+
+        $sheet3->getStyle('B:B')->getNumberFormat()->setFormatCode('0');
+        $sheet3->getStyle('C:C')->getNumberFormat()->setFormatCode('0');
+        $sheet3->getStyle('D:D')->getNumberFormat()->setFormatCode('0.00');
+
+        $recordsQuery = AttendanceSummary::query()
+            ->with(['user:id,name'])
+            ->whereBetween('work_date', [$fromDate, $toDate])
+            ->orderBy('user_id')
+            ->orderBy('work_date');
+
+        if (!$allUsers) {
+            $recordsQuery->whereIn('user_id', $ids);
+        }
+
+        $stats = []; // [user_id => ['name'=>..., 'days_present'=>int, 'late_minutes'=>int, 'total_minutes'=>int]]
+
+        $recordsQuery->chunk(500, function ($rows) use (&$stats, $startByScheduleId) {
+            foreach ($rows as $r) {
+                $uid = (int) ($r->user_id ?? 0);
+                if (!$uid) continue;
+
+                if (!isset($stats[$uid])) {
+                    $stats[$uid] = [
+                        'name' => $r->user?->name ?? ("User {$uid}"),
+                        'days_present' => 0,
+                        'late_minutes' => 0,
+                        'total_minutes' => 0,
+                    ];
+                }
+
+                // Days Present = has time_in_at
+                if (!empty($r->time_in_at)) {
+                    $stats[$uid]['days_present']++;
+                }
+
+                // Total Hours = time_out_at - time_in_at
+                if (!empty($r->time_in_at) && !empty($r->time_out_at)) {
+                    try {
+                        $in  = Carbon::parse($r->time_in_at);
+                        $out = Carbon::parse($r->time_out_at);
+
+                        if ($out->greaterThan($in)) {
+                            $stats[$uid]['total_minutes'] += $in->diffInMinutes($out);
+                        }
+                    } catch (\Throwable $e) {}
+                }
+
+                // Late Minutes = compare time_in_at vs scheduled start time for schedule_id
+                $startTime = $startByScheduleId[$r->schedule_id] ?? null;
+
+                if ($startTime && !empty($r->work_date) && !empty($r->time_in_at)) {
+                    try {
+                        $scheduled = Carbon::parse($r->work_date . ' ' . $startTime);
+                        $actual    = Carbon::parse($r->time_in_at);
+
+                        if ($actual->greaterThan($scheduled)) {
+                            $stats[$uid]['late_minutes'] += $scheduled->diffInMinutes($actual);
+                        }
+                    } catch (\Throwable $e) {}
+                }
+            }
+        });
+
+        uasort($stats, fn ($a, $b) => strcasecmp($a['name'] ?? '', $b['name'] ?? ''));
+
+        $row3 = 2;
+        foreach ($stats as $s) {
+            $totalHours = ((int)($s['total_minutes'] ?? 0)) / 60;
+
+            $sheet3->setCellValue("A{$row3}", $s['name'] ?? '');
+            $sheet3->setCellValue("B{$row3}", (int)($s['days_present'] ?? 0));
+            $sheet3->setCellValue("C{$row3}", (int)($s['late_minutes'] ?? 0));
+            $sheet3->setCellValue("D{$row3}", (float)$totalHours);
+
+            $row3++;
+        }
 
         $filename = "attendance_{$fromDate}_to_{$toDate}.xlsx";
 
