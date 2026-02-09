@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AttendanceSummary;
 use App\Models\AttendanceLog;
 use App\Models\Schedule;
+use App\Models\OfficialBusiness;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -59,9 +60,17 @@ class AttendanceExportController extends Controller
             ->orderBy('occurred_at')
             ->orderBy('user_id');
 
+        // ✅ Official Business: filter by requested_at datetime spanning the date range
+        $obQuery = OfficialBusiness::query()
+            ->with(['user:id,name', 'schedule:id,description'])
+            ->whereBetween('requested_at', [$fromDt, $toDt])
+            ->orderBy('requested_at')
+            ->orderBy('user_id');
+
         if (!$allUsers) {
             $summaryQuery->whereIn('user_id', $ids);
             $logsQuery->whereIn('user_id', $ids);
+            $obQuery->whereIn('user_id', $ids);
         }
 
         /**
@@ -77,11 +86,11 @@ class AttendanceExportController extends Controller
 
         $startByScheduleId = Schedule::query()
             ->whereIn('id', $scheduleIds)
-            ->pluck('clock_in', 'id') 
+            ->pluck('clock_in', 'id')
             ->map(fn ($t) => $t ? substr((string)$t, 0, 8) : null)
             ->toArray();
 
-        // ---- Build XLSX (3 sheets) ----
+        // ---- Build XLSX (4 sheets) ----
         $spreadsheet = new Spreadsheet();
 
         // =========================
@@ -143,18 +152,52 @@ class AttendanceExportController extends Controller
         });
 
         // =========================
-        // Sheet 3: Records
+        // Sheet 3: Official Business (NEW)
         // =========================
         $sheet3 = $spreadsheet->createSheet();
-        $sheet3->setTitle('Records');
+        $sheet3->setTitle('Official Business');
 
         $sheet3->fromArray([
+            ['user_name', 'schedule', 'type', 'requested_at', 'notes', 'status', 'reviewed_at', 'review_notes']
+        ], null, 'A1');
+
+        // formats
+        $sheet3->getStyle('D:D')->getNumberFormat()->setFormatCode('m/d/yyyy h:mm:ss AM/PM'); // requested_at
+        $sheet3->getStyle('H:H')->getNumberFormat()->setFormatCode('m/d/yyyy h:mm:ss AM/PM'); // reviewed_at
+
+        $row3 = 2;
+        $obQuery->chunk(500, function ($rows) use (&$row3, $sheet3) {
+            foreach ($rows as $r) {
+                $requested = $r->requested_at ? Carbon::parse($r->requested_at) : null;
+                $reviewed  = $r->reviewed_at ? Carbon::parse($r->reviewed_at) : null;
+
+                $sheet3->setCellValue("A{$row3}", $r->user?->name ?? '');
+                $sheet3->setCellValue("B{$row3}", $r->schedule?->description ?? '');
+                $sheet3->setCellValue("C{$row3}", $r->type ?? '');
+
+                $sheet3->setCellValue("D{$row3}", $requested ? ExcelDate::PHPToExcel($requested) : null);
+
+                $sheet3->setCellValue("E{$row3}", $r->notes ?? '');
+                $sheet3->setCellValue("F{$row3}", $r->status ?? '');
+                $sheet3->setCellValue("G{$row3}", $reviewed ? ExcelDate::PHPToExcel($reviewed) : null);
+
+                $row3++;
+            }
+        });
+
+        // =========================
+        // Sheet 4: Records (was sheet3 before)
+        // =========================
+        $sheet4 = $spreadsheet->createSheet();
+        $sheet4->setTitle('Records');
+
+        $sheet4->fromArray([
             ['Employee', 'Days Present', 'Late Minutes', 'Total Hours']
         ], null, 'A1');
 
-        $sheet3->getStyle('B:B')->getNumberFormat()->setFormatCode('0');
-        $sheet3->getStyle('C:C')->getNumberFormat()->setFormatCode('0');
-        $sheet3->getStyle('D:D')->getNumberFormat()->setFormatCode('0.00');
+        $sheet4->getStyle('B:B')->getNumberFormat()->setFormatCode('0');
+        $sheet4->getStyle('C:C')->getNumberFormat()->setFormatCode('0');
+        $sheet4->getStyle('D:D')->getNumberFormat()->setFormatCode('0.00');
 
         $recordsQuery = AttendanceSummary::query()
             ->with(['user:id,name'])
@@ -217,16 +260,16 @@ class AttendanceExportController extends Controller
 
         uasort($stats, fn ($a, $b) => strcasecmp($a['name'] ?? '', $b['name'] ?? ''));
 
-        $row3 = 2;
+        $row4 = 2;
         foreach ($stats as $s) {
             $totalHours = ((int)($s['total_minutes'] ?? 0)) / 60;
 
-            $sheet3->setCellValue("A{$row3}", $s['name'] ?? '');
-            $sheet3->setCellValue("B{$row3}", (int)($s['days_present'] ?? 0));
-            $sheet3->setCellValue("C{$row3}", (int)($s['late_minutes'] ?? 0));
-            $sheet3->setCellValue("D{$row3}", (float)$totalHours);
+            $sheet4->setCellValue("A{$row4}", $s['name'] ?? '');
+            $sheet4->setCellValue("B{$row4}", (int)($s['days_present'] ?? 0));
+            $sheet4->setCellValue("C{$row4}", (int)($s['late_minutes'] ?? 0));
+            $sheet4->setCellValue("D{$row4}", (float)$totalHours);
 
-            $row3++;
+            $row4++;
         }
 
         $filename = "attendance_{$fromDate}_to_{$toDate}.xlsx";
