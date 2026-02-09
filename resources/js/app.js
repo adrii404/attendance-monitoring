@@ -1461,8 +1461,12 @@ async function renderLogs() {
             ${rows.map((x) => `
               <tr class="text-slate-200">
                 <td class="px-3 py-2 font-semibold">${escapeHtml(x.name)}</td>
-                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(x.time_in || "—")}</td>
-                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">${escapeHtml(x.time_out || "—")}</td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">
+                  ${escapeHtml(formatTime12h(x.time_in) || "—")}
+                </td>
+                <td class="px-3 py-2 font-mono text-[11px] text-slate-300">
+                  ${escapeHtml(formatTime12h(x.time_out) || "—")}
+                </td>
               </tr>
             `).join("")}
           </tbody>
@@ -1493,6 +1497,24 @@ function setDateToToday() {
   ui.datePicker.value = isoDateLocal();
   renderLogs();
   updateCheckButtonsState();
+}
+
+function formatTime12h(timeStr) {
+  // expects "HH:mm:ss" (e.g. "19:51:00" or "07:51:00")
+  if (!timeStr || timeStr === "—") return "—";
+
+  const m = String(timeStr).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return timeStr; // fallback if unexpected format
+
+  let hh = parseInt(m[1], 10);
+  const mm = m[2];
+  const ss = m[3] ?? "00";
+
+  const ampm = hh >= 12 ? "PM" : "AM";
+  hh = hh % 12;
+  if (hh === 0) hh = 12;
+
+  return `${hh}:${mm}:${ss} ${ampm}`;
 }
 
 // ---------------- Attendance actions ----------------
